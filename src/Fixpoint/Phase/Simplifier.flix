@@ -33,6 +33,7 @@ mod Fixpoint.Phase.Simplifier {
     ///         end
     ///     end
     ///
+    // TODO: Zijun: why will this happen? Won't `C` be in IDB in stratum `i`?
     @Internal
     pub def simplifyStmt(stmt: RamStmt[v]): RamStmt[v] =
         Option.getWithDefault(RamStmt.Seq(Vector#{}), simplifyHelper(Set#{}, stmt))

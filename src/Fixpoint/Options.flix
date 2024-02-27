@@ -21,5 +21,5 @@ mod Fixpoint.Options {
     ///
     @Internal
     pub def enableDebugging(): Bool = false
-
+    pub def printAst(): Bool = true
 }

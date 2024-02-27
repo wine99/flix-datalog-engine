@@ -55,7 +55,7 @@ mod Fixpoint.Debugging {
     ///
     @Internal
     pub def notifyPreInterpret(s: RamStmt[v]): Unit \ IO with Order[v] = {
-        if (Fixpoint.Options.enableDebugging()) {
+        if (Fixpoint.Options.enableDebugging() or Fixpoint.Options.printAst()) {
             println(String.repeat(80, "*"));
             println("** Relation Algebra Machine AST");
             println(String.repeat(80, "*"));

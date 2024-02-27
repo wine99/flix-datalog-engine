@@ -146,7 +146,7 @@ mod Fixpoint.Phase.Compiler {
                     case _ => acc
                 }, loopBody, augBody) |>
                 RamStmt.Insert;
-            if (Fixpoint.Options.enableDebugging()) {
+            if (Fixpoint.Options.enableDebugging() or Fixpoint.Options.printAst()) {
                 let comment = RamStmt.Comment(ToString.toString(rule));
                 MutList.push!(comment, stmts);
                 MutList.push!(insert, stmts)

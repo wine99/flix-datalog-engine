@@ -24,18 +24,7 @@ mod Benchmark.Fixpoint.Closure {
     pub def closure2(): Int32 \ IO =
         let p = #{
             Edge(y, x) :- Edge(x, y).
-            Path(x, y) :- fix Edge(x, y).
-            Path(x, z) :- Path(x, y), Edge(y, z).
-        };
-        let edges = inject genEdgesDefault() into Edge;
-        query edges, p select (x, y) from Path(x, y)
-        |> Vector.length
-
-    @benchmark
-    pub def closure3(): Int32 \ IO =
-        let p = #{
             Path(x, y) :- Edge(x, y).
-            Path(x, y) :- Edge(y, x).
             Path(x, z) :- Path(x, y), Path(y, z).
         };
         let edges = inject genEdgesDefault() into Edge;
@@ -50,12 +39,16 @@ mod Benchmark.Fixpoint.Closure {
             Reachable(x, y) :- Edge(x, y).
             Reachable(y, x) :- Edge(x, y).
             Reachable(x, z) :- Reachable(x, y), Reachable(y, z).
-            ReachUp(x) :- Reachable(x, y), if x < y.
+            ReachUp(x) :- fix Reachable(x, y), if x < y.
             ComponentRep(x, rep) :- Reachable(x, rep), not ReachUp(rep).
         };
         let edges = inject genEdges(200, 150) into Edge;
-        query edges, p select rep from ComponentRep(_, rep)
-        |> Vector.toSet |> Set.size
+        import static java.lang.System.nanoTime(): Int64 \ IO;
+        let start = nanoTime();
+        let result = {println(""); query edges, p select rep from ComponentRep(_, rep) |> _ -> 0};
+        println("Time: ${(nanoTime() - start)}ns");
+        result
+        // result |> Vector.toSet |> Set.size
 
     @benchmark
     pub def satellite(): Int32 \ IO =

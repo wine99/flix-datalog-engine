@@ -43,12 +43,8 @@ mod Benchmark.Fixpoint.Closure {
             ComponentRep(x, rep) :- Reachable(x, rep), not ReachUp(rep).
         };
         let edges = inject genEdges(200, 150) into Edge;
-        import static java.lang.System.nanoTime(): Int64 \ IO;
-        let start = nanoTime();
-        let result = {println(""); query edges, p select rep from ComponentRep(_, rep) |> _ -> 0};
-        println("Time: ${(nanoTime() - start)}ns");
-        result
-        // result |> Vector.toSet |> Set.size
+        query edges, p select rep from ComponentRep(_, rep)
+        |> Vector.length
 
     @benchmark
     pub def satellite(): Int32 \ IO =

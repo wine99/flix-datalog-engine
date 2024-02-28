@@ -27,6 +27,7 @@ mod Fixpoint.Solver {
     use Fixpoint.Ast.Shared.PredSym
     use Fixpoint.Ast.Shared.PredSym.PredSym
     use Fixpoint.Interpreter.Database
+    use Concurrent2.ConcurrentMap
 
     ///
     /// Returns the minimal model of the given Datalog program `d`.
@@ -110,7 +111,6 @@ mod Fixpoint.Solver {
             }, db) |>
             List.toMap |>
             Model
-        case Join(d1, d2) => union(projectSym(p, d1), projectSym(p, d2))
         case Join(d1, d2) => union(projectSym(p, d1), projectSym(p, d2))
     }
 

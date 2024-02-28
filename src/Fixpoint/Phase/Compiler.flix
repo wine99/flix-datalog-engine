@@ -72,23 +72,31 @@ mod Fixpoint.Phase.Compiler {
     /// and Eval-Rule-Incr is the code emitted by `compileRuleIncr`.
     ///
     def compileStratum(stratum: List[Constraint[v]]): List[RamStmt[v]] = region rc {
-        let stmts = MutList.empty(rc);
-
-        let evalRules = stratum |> List.flatMap(compileRule) |> List.toVector |> RamStmt.Par;
-        MutList.push!(evalRules, stmts);
-
         let idb = List.foldRight(match Constraint(HeadAtom(pred, den, terms), _) -> {
             let arity = Vector.length(terms);
             Map.insert(pred, (arity, den))
         }, Map#{}, stratum);
-        let loopBody = MutList.empty(rc);
+
+        let stmts = MutList.empty(rc);
 
         Map.forEach(predSym -> match (arity, den) -> {
             let full = RamSym.Full(predSym, arity, den);
             let delta = RamSym.Delta(predSym, arity, den);
-            let mergeDelta = RamStmt.Merge(full, delta);
-            MutList.push!(mergeDelta, stmts)
+            MutList.push!(RamStmt.Prepare(full), stmts);
+            MutList.push!(RamStmt.Prepare(delta), stmts)
         }, idb);
+
+        let evalRules = stratum |> List.flatMap(compileRule) |> List.toVector |> RamStmt.Seq;
+        MutList.push!(evalRules, stmts);
+
+        let mergeFullToDelta = Map.mapWithKey(predSym -> match (arity, den) -> {
+            let full = RamSym.Full(predSym, arity, den);
+            let delta = RamSym.Delta(predSym, arity, den);
+            RamStmt.Merge(full, delta)
+        }, idb) |> Map.valuesOf |> List.toVector |> RamStmt.Par;
+        MutList.push!(mergeFullToDelta, stmts);
+
+        let loopBody = MutList.empty(rc);
 
         Map.forEach(predSym -> match (arity, den) -> {
             let purge = RamStmt.Purge(RamSym.New(predSym, arity, den));
@@ -96,12 +104,12 @@ mod Fixpoint.Phase.Compiler {
         }, idb);
         let evalRulesIncr = stratum |> List.flatMap(compileRuleIncr) |> List.toVector |> RamStmt.Par;
         MutList.push!(evalRulesIncr, loopBody);
-        Map.forEach(predSym -> match (arity, den) -> {
+        let mergeNewToFull = Map.mapWithKey(predSym -> match (arity, den) -> {
             let newr = RamSym.New(predSym, arity, den);
             let full = RamSym.Full(predSym, arity, den);
-            let mergeNew = RamStmt.Merge(newr, full);
-            MutList.push!(mergeNew, loopBody)
-        }, idb);
+            RamStmt.Merge(newr, full)
+        }, idb) |> Map.valuesOf |> List.toVector |> RamStmt.Par;
+        MutList.push!(mergeNewToFull, loopBody);
         Map.forEach(predSym -> match (arity, den) -> {
             let delta = RamSym.Delta(predSym, arity, den);
             let newr = RamSym.New(predSym, arity, den);

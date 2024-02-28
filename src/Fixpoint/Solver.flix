@@ -27,6 +27,7 @@ mod Fixpoint.Solver {
     use Fixpoint.Ast.Shared.PredSym
     use Fixpoint.Ast.Shared.PredSym.PredSym
     use Fixpoint.Interpreter.Database
+    use Concurrent2.ConcurrentMap
 
     ///
     /// Returns the minimal model of the given Datalog program `d`.
@@ -57,7 +58,8 @@ mod Fixpoint.Solver {
             case Model(_) => d
             case Join(Model(m), cs) => region rc {
                 let db = Map.map(Map.toMutMap(rc), m) |> Map.toMutMap(rc);
-                compiler(cs) |> Fixpoint.Interpreter.interpretWithDatabase(rc, db) |> toModel
+                let cdb = MutMap.empty(rc);
+                compiler(cs) |> Fixpoint.Interpreter.interpretWithDatabase(rc, db, cdb) |> toModel
             }
             case _ => bug!("Datalog normalization bug")
         };

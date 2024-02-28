@@ -31,6 +31,7 @@ mod Fixpoint.Ast.Ram {
         case Merge(RamSym[v], RamSym[v])
         case Assign(RamSym[v], RamSym[v])
         case Purge(RamSym[v])
+        case Prepare(RamSym[v])
         case Seq(Vector[RamStmt[v]])
         case Par(Vector[RamStmt[v]])
         case Until(Vector[BoolExp[v]], RamStmt[v])
@@ -45,6 +46,7 @@ mod Fixpoint.Ast.Ram {
                 case RamStmt.Merge(src, dst) => "merge ${src} into ${dst}"
                 case RamStmt.Assign(lhs, rhs) => "${lhs} := ${rhs}"
                 case RamStmt.Purge(ramSym) => "purge ${ramSym}"
+                case RamStmt.Prepare(ramSym) => "prepare ${ramSym}"
                 case RamStmt.Seq(xs) => Vector.join(";${nl}", xs)
                 case RamStmt.Par(xs) => Vector.join(" ||${nl}", xs)
                 case RamStmt.Until(test, body) =>

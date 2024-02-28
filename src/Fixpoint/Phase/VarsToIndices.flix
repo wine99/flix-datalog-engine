@@ -29,6 +29,7 @@ mod Fixpoint.Phase.VarsToIndices {
         case RamStmt.Assign(_, _) => stmt
         case RamStmt.Purge(_) => stmt
         case RamStmt.Seq(xs) => RamStmt.Seq(Vector.map(lowerStmt, xs))
+        case RamStmt.Par(xs) => RamStmt.Par(Vector.map(lowerStmt, xs))
         case RamStmt.Until(test, body) => RamStmt.Until(test, lowerStmt(body))
         case RamStmt.Comment(_) => stmt
     }

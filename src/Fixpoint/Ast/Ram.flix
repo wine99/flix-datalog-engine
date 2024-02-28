@@ -32,6 +32,7 @@ mod Fixpoint.Ast.Ram {
         case Assign(RamSym[v], RamSym[v])
         case Purge(RamSym[v])
         case Seq(Vector[RamStmt[v]])
+        case Par(Vector[RamStmt[v]])
         case Until(Vector[BoolExp[v]], RamStmt[v])
         case Comment(String)
     }
@@ -45,6 +46,7 @@ mod Fixpoint.Ast.Ram {
                 case RamStmt.Assign(lhs, rhs) => "${lhs} := ${rhs}"
                 case RamStmt.Purge(ramSym) => "purge ${ramSym}"
                 case RamStmt.Seq(xs) => Vector.join(";${nl}", xs)
+                case RamStmt.Par(xs) => Vector.join(" ||${nl}", xs)
                 case RamStmt.Until(test, body) =>
                     let tst = test |> Vector.join(" Λ ");
                     "until(${tst}) do${nl}${String.indent(4, "${body}")}end"

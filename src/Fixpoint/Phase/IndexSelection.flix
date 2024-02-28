@@ -71,6 +71,7 @@ mod Fixpoint.Phase.IndexSelection {
         case RamStmt.Assign(_, _) => stmt
         case RamStmt.Purge(_) => stmt
         case RamStmt.Seq(xs) => RamStmt.Seq(Vector.map(queryStmt, xs))
+        case RamStmt.Par(xs) => RamStmt.Par(Vector.map(queryStmt, xs))
         case RamStmt.Until(test, body) => RamStmt.Until(test, queryStmt(body))
         case RamStmt.Comment(_) => stmt
     }

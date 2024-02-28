@@ -75,6 +75,8 @@ mod Fixpoint.Phase.Simplifier {
         case RamStmt.Purge(_) => Some(stmt)
         case RamStmt.Seq(xs) =>
             Some(RamStmt.Seq(Vector.filterMap(simplifyHelper(stratum), xs)))
+        case RamStmt.Par(xs) =>
+            Some(RamStmt.Par(Vector.filterMap(simplifyHelper(stratum), xs)))
         case RamStmt.Until(test, body) =>
             let newStratum = Vector.foldLeft(acc -> e -> match e {
                 case BoolExp.Empty(ramSym) => Set.insert(ramSym, acc)

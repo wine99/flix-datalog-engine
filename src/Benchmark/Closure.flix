@@ -2,9 +2,9 @@ mod Benchmark.Fixpoint.Closure {
     def genEdges(numNodes: Int32, numEdges: Int32): List[(Int32, Int32)] \ IO =
         genFacts(numEdges, genFact2(numNodes), None)
 
-    def numEdges(): Int32 = 200
+    def numEdges(): Int32 = 10
 
-    def numNodes(): Int32 = 200
+    def numNodes(): Int32 = 10
 
     def genEdgesDefault(): List[(Int32, Int32)] \ IO =
         genEdges(numNodes(), numEdges())

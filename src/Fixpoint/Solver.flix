@@ -27,7 +27,6 @@ mod Fixpoint.Solver {
     use Fixpoint.Ast.Shared.PredSym
     use Fixpoint.Ast.Shared.PredSym.PredSym
     use Fixpoint.Interpreter.Database
-    use Concurrent2.ConcurrentMap
 
     ///
     /// Returns the minimal model of the given Datalog program `d`.
@@ -57,9 +56,10 @@ mod Fixpoint.Solver {
             }
             case Model(_) => d
             case Join(Model(m), cs) => region rc {
-                let db = Map.map(Map.toMutMap(rc), m) |> Map.toMutMap(rc);
-                let cdb = MutMap.empty(rc);
-                compiler(cs) |> Fixpoint.Interpreter.interpretWithDatabase(rc, db, cdb) |> toModel
+                let db = m
+                    |> Map.map(BPlusTree.fromMap(rc, Fixpoint.Interpreter.treeNodeSize()))
+                    |> BPlusTree.fromMap(rc, Fixpoint.Interpreter.treeNodeSize());
+                compiler(cs) |> Fixpoint.Interpreter.interpretWithDatabase(rc, db) |> toModel
             }
             case _ => bug!("Datalog normalization bug")
         };
@@ -110,6 +110,7 @@ mod Fixpoint.Solver {
             }, db) |>
             List.toMap |>
             Model
+        case Join(d1, d2) => union(projectSym(p, d1), projectSym(p, d2))
         case Join(d1, d2) => union(projectSym(p, d1), projectSym(p, d2))
     }
 
@@ -495,13 +496,13 @@ mod Fixpoint.Solver {
 
     def injectIntoX[f: Type -> Type, t: Type, ef: Eff](f: t -> List[Boxed] \ ef, p: PredSym, ts: f[t]): Datalog[Boxed] \ ef with Foldable[f] =
         region rc {
-            let db = MutMap.empty(rc);
+            let db = Fixpoint.Interpreter.newEmptyTree(rc);
             Foldable.foldLeft(() -> t -> {
                 let vs = f(t);
                 let arity = List.length(vs);
                 let ramSym = RamSym.Full(p, arity, Denotation.Relational);
-                let rel = MutMap.getOrElsePut!(ramSym, MutMap.empty(rc), db);
-                MutMap.put!(List.toVector(vs), Reflect.default(), rel)
+                let rel = BPlusTree.getOrElsePut!(ramSym, Fixpoint.Interpreter.newEmptyTree(rc), db);
+                BPlusTree.put!(List.toVector(vs), Reflect.default(), rel)
             }, (), ts);
             toModel(db)
         }
@@ -753,8 +754,8 @@ mod Fixpoint.Solver {
     ///
     /// Returns the given database `db` as a Datalog value.
     ///
-    def toModel(db: Database[v, r]): Datalog[v] \ r =
-        MutMap.toMap(db) |>
-        Map.map(MutMap.toMap) |>
+    def toModel(db: Database[v, r]): Datalog[v] \ r with Order[v] =
+        BPlusTree.toMap(db) |>
+        Map.map(BPlusTree.toMap) |>
         Model
 }

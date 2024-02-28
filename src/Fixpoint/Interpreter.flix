@@ -18,62 +18,61 @@ mod Fixpoint.Interpreter {
 
     use Fixpoint.Ast.Ram.{RamStmt, RelOp, RamSym, RamTerm, BoolExp, RowVar, toDenotation}
     use Fixpoint.Ast.Shared.Denotation
-    use Concurrent2.ConcurrentMap;
+    // use BPlusTree;
 
-    pub type alias Database[v: Type, r: Region] = MutMap[RamSym[v], MutMap[Vector[v], v, r], r]
-    pub type alias ConcurrentDatabase[v: Type, r: Region] = MutMap[RamSym[v], ConcurrentMap[Vector[v], v, r], r]
+    pub type alias Database[v: Type, r: Region] = BPlusTree[RamSym[v], BPlusTree[Vector[v], v, r], r]
 
     pub type alias SearchEnv[v: Type, r: Region] = (Array[Vector[v], r], Array[v, r])
 
     @Internal
-    pub def interpret(rc: Region[r], stmt: RamStmt[v]): Database[v, r] \ r with Order[v] =
-        interpretWithDatabase(rc, MutMap.empty(rc), MutMap.empty(rc), stmt)
+    pub def treeNodeSize(): Int32 = 32
 
     @Internal
-    pub def interpretWithDatabase(rc: Region[r], db: Database[v, r], cdb: ConcurrentDatabase[v, r], stmt: RamStmt[v]): Database[v, r] \ r with Order[v] =
+    pub def newEmptyTree(rc: Region[r]): BPlusTree[k, v, r] \ r = BPlusTree.empty(rc, treeNodeSize())
+
+    @Internal
+    pub def interpret(rc: Region[r], stmt: RamStmt[v]): Database[v, r] \ r with Order[v] =
+        interpretWithDatabase(rc, newEmptyTree(rc), stmt)
+
+    @Internal
+    pub def interpretWithDatabase(rc: Region[r], db: Database[v, r], stmt: RamStmt[v]): Database[v, r] \ r with Order[v] =
         masked_cast(Fixpoint.Debugging.notifyPreInterpret(stmt));
-        evalStmt(rc, db, cdb, stmt);
+        evalStmt(rc, db, stmt);
         db
 
-    def evalStmt(rc: Region[r], db: Database[v, r], cdb: ConcurrentDatabase[v, r], stmt: RamStmt[v]): Unit \ r with Order[v] =
-        let getSymbolValues = getSymbolValues(rc, db, cdb);
+    def evalStmt(rc: Region[r], db: Database[v, r], stmt: RamStmt[v]): Unit \ r with Order[v] =
+        let getSymbolValues = getSymbolValues(db);
         match stmt {
-            case RamStmt.Insert(relOp) => evalOp(rc, db, cdb, allocEnv(rc, 0, relOp), relOp)
+            case RamStmt.Insert(relOp) => evalOp(rc, db, allocEnv(rc, 0, relOp), relOp)
             case RamStmt.Merge(srcSym, dstSym) =>
                 let dst = getSymbolValues(dstSym);
                 let src = getSymbolValues(srcSym);
                 match toDenotation(srcSym) {
                     case Denotation.Relational =>
-                        MutMap.merge!(src, dst)
+                        BPlusTree.merge!(src, dst)
                     case Denotation.Latticenal(_, _, lub, _) =>
-                        MutMap.mergeWith!(lub, src, dst)
+                        BPlusTree.mergeWith!(lub, src, dst)
                 }
             case RamStmt.Assign(lhs, rhs) =>
                 let src = getSymbolValues(rhs);
-                MutMap.put!(lhs, src, db)
+                BPlusTree.put!(lhs, src, db)
             case RamStmt.Purge(ramSym) => 
-                match ramSym {
-                    case RamSym.New(_, _, _) => MutMap.put!(ramSym, ConcurrentMap.empty(rc), cdb)
-                    case _ => MutMap.put!(ramSym, MutMap.empty(rc), db)
-                }
+                BPlusTree.put!(ramSym, newEmptyTree(rc), db)
             case RamStmt.Prepare(ramSym) =>
-                match ramSym {
-                    case RamSym.New(_, _, _) => bug!("No need to prepare for symbol ${ramSym}")
-                    case _ => MutMap.getOrElsePut!(ramSym, MutMap.empty(rc), db)
-                };
+                BPlusTree.getOrElsePut!(ramSym, newEmptyTree(rc), db);
                 ()
-            case RamStmt.Seq(stmts) => Vector.forEach(evalStmt(rc, db, cdb), stmts)
+            case RamStmt.Seq(stmts) => Vector.forEach(evalStmt(rc, db), stmts)
             case RamStmt.Par(stmts) =>
-                region rc2 {
-                    Vector.forEach(s -> unchecked_cast(spawn evalStmt(rc, db, cdb, s) @ rc2 as _ \ r ), stmts)
-                }
-                // Vector.forEach(evalStmt(rc, db, cdb), stmts)
+                // region rc2 {
+                //     Vector.forEach(s -> unchecked_cast(spawn evalStmt(rc, db, s) @ rc2 as _ \ r ), stmts)
+                // }
+                Vector.forEach(evalStmt(rc, db), stmts)
             case RamStmt.Until(test, body) =>
                 if (evalBoolExp(rc, db, (Array#{} @ rc, Array#{} @ rc), test)) {
                     ()
                 } else {
-                    evalStmt(rc, db, cdb, body);
-                    evalStmt(rc, db, cdb, stmt)
+                    evalStmt(rc, db, body);
+                    evalStmt(rc, db, stmt)
                 }
             case RamStmt.Comment(_) => ()
         }
@@ -86,22 +85,22 @@ mod Fixpoint.Interpreter {
         case RelOp.If(_, then)                  => allocEnv(rc, depth, then)
     }
 
-    def evalOp(rc1: Region[r1], db: Database[v, r1], cdb: ConcurrentDatabase[v, r1], env: SearchEnv[v, r2], op: RelOp[v]): Unit \ { r1, r2 } with Order[v] =
+    def evalOp(rc1: Region[r1], db: Database[v, r1], env: SearchEnv[v, r2], op: RelOp[v]): Unit \ { r1, r2 } with Order[v] =
         match op {
             case RelOp.Search(RowVar.Index(i), ramSym, body) =>
                 let (tupleEnv, latEnv) = env;
-                MutMap.forEach(t -> l -> {
+                BPlusTree.forEach(t -> l -> {
                     Array.put(t, i, tupleEnv);
                     Array.put(l, i, latEnv);
-                    evalOp(rc1, db, cdb, env, body)
-                }, MutMap.getWithDefault(ramSym, MutMap.empty(rc1), db))
+                    evalOp(rc1, db, env, body)
+                }, BPlusTree.getWithDefault(ramSym, newEmptyTree(rc1), db))
             case RelOp.Query(RowVar.Index(i), ramSym, qry, body) =>
                 let (tupleEnv, latEnv) = env;
-                MutMap.rangeQueryWith(evalQuery(env, Vector.toList(qry)), t -> l -> {
+                BPlusTree.rangeQueryWith(evalQuery(env, Vector.toList(qry)), t -> l -> {
                     Array.put(t, i, tupleEnv);
                     Array.put(l, i, latEnv);
-                    evalOp(rc1, db, cdb, env, body)
-                }, MutMap.getWithDefault(ramSym, MutMap.empty(rc1), db))
+                    evalOp(rc1, db, env, body)
+                }, BPlusTree.getWithDefault(ramSym, newEmptyTree(rc1), db))
             case RelOp.Functional(RowVar.Index(i), f, terms, body) =>
                 let args = terms |> Vector.map(evalTerm(env));
                 let result = f(args);
@@ -109,53 +108,29 @@ mod Fixpoint.Interpreter {
                 let (tupleEnv, _latEnv) = env; // TODO: Do we ever need to use latEnv?
                 foreach (t <- result) {
                     Array.put(t, i, tupleEnv);
-                    evalOp(rc1, db, cdb, env, body)
+                    evalOp(rc1, db, env, body)
                 }
             case RelOp.Project(terms, ramSym) =>
-                match ramSym {
-                    case RamSym.New(_, _, _) =>
-                        let rel = match MutMap.get(ramSym, cdb) {
-                            case Some(cmap) => cmap
-                            case None => bug!("Symbol ${ramSym} not found in database")
+                let rel = BPlusTree.getOrElsePut!(ramSym, newEmptyTree(rc1), db);
+                match toDenotation(ramSym) {
+                    case Denotation.Relational =>
+                        let tuple = Vector.map(evalTerm(env), terms);
+                        BPlusTree.put!(tuple, Reflect.default(), rel)
+                    case Denotation.Latticenal(bot, leq, lub, _) =>
+                        // assume that length(terms) > 0
+                        let len = Vector.length(terms);
+                        let keyList = terms |> Vector.map(evalTerm(env));
+                        let (key, latValList) = Vector.splitAt(len - 1, keyList);
+                        let latVal = match Vector.head(latValList) {
+                            case None => bug!("Found predicate without terms")
+                            case Some(k) => k
                         };
-                        match toDenotation(ramSym) {
-                            case Denotation.Relational =>
-                                let tuple = Vector.map(evalTerm(env), terms);
-                                ConcurrentMap.put!(tuple, Reflect.default(), rel)
-                            case Denotation.Latticenal(bot, leq, lub, _) =>
-                                // assume that length(terms) > 0
-                                let len = Vector.length(terms);
-                                let keyList = terms |> Vector.map(evalTerm(env));
-                                let (key, latValList) = Vector.splitAt(len - 1, keyList);
-                                let latVal = match Vector.head(latValList) {
-                                    case None => bug!("Found predicate without terms")
-                                    case Some(k) => k
-                                };
-                                if (latVal `leq` bot) ()
-                                else ConcurrentMap.putWith!(lub, key, latVal, rel)
-                        }
-                    case _ =>
-                        let rel = MutMap.getOrElsePut!(ramSym, MutMap.empty(rc1), db);
-                        match toDenotation(ramSym) {
-                            case Denotation.Relational =>
-                                let tuple = Vector.map(evalTerm(env), terms);
-                                MutMap.put!(tuple, Reflect.default(), rel)
-                            case Denotation.Latticenal(bot, leq, lub, _) =>
-                                // assume that length(terms) > 0
-                                let len = Vector.length(terms);
-                                let keyList = terms |> Vector.map(evalTerm(env));
-                                let (key, latValList) = Vector.splitAt(len - 1, keyList);
-                                let latVal = match Vector.head(latValList) {
-                                    case None => bug!("Found predicate without terms")
-                                    case Some(k) => k
-                                };
-                                if (latVal `leq` bot) ()
-                                else MutMap.putWith!(lub, key, latVal, rel)
-                        }
+                        if (latVal `leq` bot) ()
+                        else BPlusTree.putWith!(lub, key, latVal, rel)
                 }
             case RelOp.If(test, then) =>
                 if (evalBoolExp(rc1, db, env, test)) {
-                    evalOp(rc1, db, cdb, env, then)
+                    evalOp(rc1, db, env, then)
                 } else {
                     ()
                 }
@@ -174,13 +149,13 @@ mod Fixpoint.Interpreter {
     def evalBoolExp(rc1: Region[r1], db: Database[v, r1], env: SearchEnv[v, r2], es: Vector[BoolExp[v]]): Bool \ { r1, r2 } with Order[v] =
         Vector.forAll(exp -> match exp {
             case BoolExp.Empty(ramSym) =>
-                MutMap.isEmpty(MutMap.getWithDefault(ramSym, MutMap.empty(rc1), db))
+                BPlusTree.isEmpty(BPlusTree.getWithDefault(ramSym, newEmptyTree(rc1), db))
             case BoolExp.NotMemberOf(terms, ramSym) =>
-                let rel = MutMap.getWithDefault(ramSym, MutMap.empty(rc1), db);
+                let rel = BPlusTree.getWithDefault(ramSym, newEmptyTree(rc1), db);
                 match toDenotation(ramSym) {
                     case Denotation.Relational =>
                         let tuple = Vector.map(evalTerm(env), terms);
-                        not MutMap.memberOf(tuple, rel)
+                        not BPlusTree.memberOf(tuple, rel)
                     case Denotation.Latticenal(bot, leq, _, _) =>
                         let len = Vector.length(terms);
                         let evalTerms = Vector.map(evalTerm(env), terms);
@@ -190,7 +165,7 @@ mod Fixpoint.Interpreter {
                             case None => bug!("Found predicate without terms")
                             case Some(hd) => hd
                         };
-                        not (latTerm `leq` MutMap.getWithDefault(key, bot, rel))
+                        not (latTerm `leq` BPlusTree.getWithDefault(key, bot, rel))
                 }
             case BoolExp.Eq(lhs, rhs) =>
                 evalTerm(env, lhs) == evalTerm(env, rhs)
@@ -266,16 +241,10 @@ mod Fixpoint.Interpreter {
         case _ => bug!("Illegal term ${term}")
     }
 
-    def getSymbolValues(rc: Region[r], db: Database[v, r], cdb: ConcurrentDatabase[v, r], ramSym: RamSym[v]): MutMap[Vector[v], v, r] \ r =
-        match ramSym {
-            case RamSym.New(_, _, _) => match MutMap.get(ramSym, cdb) {
-                case Some(cmap) => cmap |> ConcurrentMap.toMutMap(rc)
-                case None => bug!("Symbol ${ramSym} not found in database")
-            }
-            case _ =>  match MutMap.get(ramSym, db) {
-                case Some(map) => map
-                case None => bug!("Symbol ${ramSym} not found in database")
-            }
+    def getSymbolValues(db: Database[v, r], ramSym: RamSym[v]): BPlusTree[Vector[v], v, r] \ r =
+        match BPlusTree.get(ramSym, db) {
+            case Some(map) => map
+            case None => bug!("Symbol ${ramSym} not found in database")
         }
 
 }

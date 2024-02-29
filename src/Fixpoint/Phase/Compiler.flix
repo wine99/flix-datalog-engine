@@ -74,7 +74,7 @@ mod Fixpoint.Phase.Compiler {
     def compileStratum(stratum: List[Constraint[v]]): List[RamStmt[v]] = region rc {
         let stmts = MutList.new(rc);
 
-        let evalRules = stratum |> List.flatMap(compileRule) |> List.toVector |> RamStmt.Par;
+        let evalRules = stratum |> List.flatMap(compileRule) |> List.toVector |> RamStmt.Seq;
         MutList.push!(evalRules, stmts);
 
         let idb = List.foldRight(match Constraint(HeadAtom(pred, den, terms), _) -> {

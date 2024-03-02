@@ -49,7 +49,11 @@ mod Fixpoint.Interpreter {
             case RamStmt.Purge(ramSym) => MutMap.remove!(ramSym, db)
             case RamStmt.Seq(stmts) => Vector.forEach(evalStmt(rc, db), stmts)
             // TODO
-            case RamStmt.Par(stmts) => Vector.forEach(evalStmt(rc, db), stmts)
+            case RamStmt.Par(stmts) =>
+                // TODO
+                region rc2 {
+                    Vector.forEach(s -> unchecked_cast(spawn evalStmt(rc, db, s) @ rc2 as _ \ r ), stmts)
+                }
             case RamStmt.Until(test, body) =>
                 if (evalBoolExp(rc, db, (Array#{} @ rc, Array#{} @ rc), test)) {
                     ()

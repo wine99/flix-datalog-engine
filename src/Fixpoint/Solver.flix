@@ -27,6 +27,7 @@ mod Fixpoint.Solver {
     use Fixpoint.Ast.Shared.PredSym
     use Fixpoint.Ast.Shared.PredSym.PredSym
     use Fixpoint.Interpreter.Database
+    use Concurrent2.ConcurrentMap
 
     ///
     /// Returns the minimal model of the given Datalog program `d`.
@@ -57,7 +58,8 @@ mod Fixpoint.Solver {
             case Model(_) => d
             case Join(Model(m), cs) => region rc {
                 let db = Map.map(Map.toMutMap(rc), m) |> Map.toMutMap(rc);
-                compiler(cs) |> Fixpoint.Interpreter.interpretWithDatabase(rc, db) |> toModel
+                let cdb = ConcurrentMap.new(rc);
+                compiler(cs) |> Fixpoint.Interpreter.interpretWithDatabase(rc, db, cdb) |> toModel
             }
             case _ => bug!("Datalog normalization bug")
         };
@@ -94,7 +96,7 @@ mod Fixpoint.Solver {
     /// Project all facts in the given Datalog program `d` that has `p` in its head.
     ///
     @Internal
-    pub def project(p: PredSym, d: Datalog[v]): Datalog[v] with Order[v] = match d {
+    pub def projectSym(p: PredSym, d: Datalog[v]): Datalog[v] with Order[v] = match d {
         case Datalog(facts, _) =>
             let pFacts = Vector.filter(match Constraint(HeadAtom(head, _, _), _) -> head == p, facts);
             Datalog(pFacts, Vector.empty())
@@ -108,7 +110,7 @@ mod Fixpoint.Solver {
             }, db) |>
             List.toMap |>
             Model
-        case Join(d1, d2) => union(project(p, d1), project(p, d2))
+        case Join(d1, d2) => union(projectSym(p, d1), projectSym(p, d2))
     }
 
     ///

@@ -9,8 +9,13 @@ mod Benchmark.Fixpoint.Closure {
     def genEdgesDefault(): List[(Int32, Int32)] \ IO =
         genEdges(numNodes(), numEdges())
 
+    /// TODO special graphs: chains, multipile SCCs
+
     @benchmark
     pub def closure1(): Int32 \ IO =
+        // edges/nodes = 10  -> 45
+        // edges/nodes = 50  -> 1525
+        // edges/nodes = 100 -> 6100
         let p = #{
             Edge(y, x) :- Edge(x, y).
             Path(x, y) :- Edge(x, y).

@@ -18,48 +18,56 @@ mod Fixpoint.Interpreter {
 
     use Fixpoint.Ast.Ram.{RamStmt, RelOp, RamSym, RamTerm, BoolExp, RowVar, toDenotation}
     use Fixpoint.Ast.Shared.Denotation
+    use Concurrent2.ConcurrentMap;
 
     pub type alias Database[v: Type, r: Region] = MutMap[RamSym[v], MutMap[Vector[v], v, r], r]
+    pub type alias ConcurrentDatabase[v: Type, r: Region] = ConcurrentMap[RamSym[v], ConcurrentMap[Vector[v], v, r], r]
 
     pub type alias SearchEnv[v: Type, r: Region] = (Array[Vector[v], r], Array[v, r])
 
     @Internal
     pub def interpret(rc: Region[r], stmt: RamStmt[v]): Database[v, r] \ r with Order[v] =
-        interpretWithDatabase(rc, MutMap.new(rc), stmt)
+        interpretWithDatabase(rc, MutMap.new(rc), ConcurrentMap.new(rc), stmt)
 
     @Internal
-    pub def interpretWithDatabase(rc: Region[r], db: Database[v, r], stmt: RamStmt[v]): Database[v, r] \ r with Order[v] =
+    pub def interpretWithDatabase(rc: Region[r], db: Database[v, r], cdb: ConcurrentDatabase[v, r], stmt: RamStmt[v]): Database[v, r] \ r with Order[v] =
         masked_cast(Fixpoint.Debugging.notifyPreInterpret(stmt));
-        evalStmt(rc, db, stmt);
+        evalStmt(rc, db, cdb, stmt);
         db
 
-    def evalStmt(rc: Region[r], db: Database[v, r], stmt: RamStmt[v]): Unit \ r with Order[v] =
+    def evalStmt(rc: Region[r], db: Database[v, r], cdb: ConcurrentDatabase[v, r], stmt: RamStmt[v]): Unit \ r with Order[v] =
+        let getSymbolValues = getSymbolValues(rc, db, cdb);
         match stmt {
-            case RamStmt.Insert(relOp) => evalOp(rc, db, allocEnv(rc, 0, relOp), relOp)
+            case RamStmt.Insert(relOp) => evalOp(rc, db, cdb, allocEnv(rc, 0, relOp), relOp)
             case RamStmt.Merge(srcSym, dstSym) =>
                 let dst = MutMap.getOrElsePut!(dstSym, MutMap.new(rc), db);
+                let src = getSymbolValues(srcSym);
                 match toDenotation(srcSym) {
                     case Denotation.Relational =>
-                        MutMap.merge!(MutMap.getWithDefault(srcSym, MutMap.new(rc), db), dst)
+                        MutMap.merge!(src, dst)
                     case Denotation.Latticenal(_, _, lub, _) =>
-                        MutMap.mergeWith!(lub, MutMap.getWithDefault(srcSym, MutMap.new(rc), db), dst)
+                        MutMap.mergeWith!(lub, src, dst)
                 }
             case RamStmt.Assign(lhs, rhs) =>
-                MutMap.put!(lhs, MutMap.getWithDefault(rhs, MutMap.new(rc), db), db)
-            case RamStmt.Purge(ramSym) => MutMap.remove!(ramSym, db)
-            case RamStmt.Seq(stmts) => Vector.forEach(evalStmt(rc, db), stmts)
-            // TODO
-            case RamStmt.Par(stmts) =>
-                // TODO
-                region rc2 {
-                    Vector.forEach(s -> unchecked_cast(spawn evalStmt(rc, db, s) @ rc2 as _ \ r ), stmts)
+                let src = getSymbolValues(rhs);
+                MutMap.put!(lhs, src, db)
+            case RamStmt.Purge(ramSym) => 
+                match ramSym {
+                    case RamSym.New(_, _, _) => ConcurrentMap.remove!(ramSym, cdb)
+                    case _ => MutMap.remove!(ramSym, db)
                 }
+            case RamStmt.Seq(stmts) => Vector.forEach(evalStmt(rc, db, cdb), stmts)
+            case RamStmt.Par(stmts) =>
+                region rc2 {
+                    Vector.forEach(s -> unchecked_cast(spawn evalStmt(rc, db, cdb, s) @ rc2 as _ \ r ), stmts)
+                }
+                // Vector.forEach(evalStmt(rc, db, cdb), stmts)
             case RamStmt.Until(test, body) =>
                 if (evalBoolExp(rc, db, (Array#{} @ rc, Array#{} @ rc), test)) {
                     ()
                 } else {
-                    evalStmt(rc, db, body);
-                    evalStmt(rc, db, stmt)
+                    evalStmt(rc, db, cdb, body);
+                    evalStmt(rc, db, cdb, stmt)
                 }
             case RamStmt.Comment(_) => ()
         }
@@ -72,21 +80,21 @@ mod Fixpoint.Interpreter {
         case RelOp.If(_, then)                  => allocEnv(rc, depth, then)
     }
 
-    def evalOp(rc1: Region[r1], db: Database[v, r1], env: SearchEnv[v, r2], op: RelOp[v]): Unit \ { r1, r2 } with Order[v] =
+    def evalOp(rc1: Region[r1], db: Database[v, r1], cdb: ConcurrentDatabase[v, r1], env: SearchEnv[v, r2], op: RelOp[v]): Unit \ { r1, r2 } with Order[v] =
         match op {
             case RelOp.Search(RowVar.Index(i), ramSym, body) =>
                 let (tupleEnv, latEnv) = env;
                 MutMap.forEach(t -> l -> {
                     Array.put(t, i, tupleEnv);
                     Array.put(l, i, latEnv);
-                    evalOp(rc1, db, env, body)
+                    evalOp(rc1, db, cdb, env, body)
                 }, MutMap.getWithDefault(ramSym, MutMap.new(rc1), db))
             case RelOp.Query(RowVar.Index(i), ramSym, query, body) =>
                 let (tupleEnv, latEnv) = env;
                 MutMap.rangeQueryWith(evalQuery(env, Vector.toList(query)), t -> l -> {
                     Array.put(t, i, tupleEnv);
                     Array.put(l, i, latEnv);
-                    evalOp(rc1, db, env, body)
+                    evalOp(rc1, db, cdb, env, body)
                 }, MutMap.getWithDefault(ramSym, MutMap.new(rc1), db))
             case RelOp.Functional(RowVar.Index(i), f, terms, body) =>
                 let args = terms |> Vector.map(evalTerm(env));
@@ -95,29 +103,50 @@ mod Fixpoint.Interpreter {
                 let (tupleEnv, _latEnv) = env; // TODO: Do we ever need to use latEnv?
                 foreach (t <- result) {
                     Array.put(t, i, tupleEnv);
-                    evalOp(rc1, db, env, body)
+                    evalOp(rc1, db, cdb, env, body)
                 }
             case RelOp.Project(terms, ramSym) =>
-                let rel = MutMap.getOrElsePut!(ramSym, MutMap.new(rc1), db);
-                match toDenotation(ramSym) {
-                    case Denotation.Relational =>
-                        let tuple = Vector.map(evalTerm(env), terms);
-                        MutMap.put!(tuple, Reflect.default(), rel)
-                    case Denotation.Latticenal(bot, leq, lub, _) =>
-                        // assume that length(terms) > 0
-                        let len = Vector.length(terms);
-                        let keyList = terms |> Vector.map(evalTerm(env));
-                        let (key, latValList) = Vector.splitAt(len - 1, keyList);
-                        let latVal = match Vector.head(latValList) {
-                            case None => bug!("Found predicate without terms")
-                            case Some(k) => k
-                        };
-                        if (latVal `leq` bot) ()
-                        else MutMap.putWith!(lub, key, latVal, rel)
+                match ramSym {
+                    case RamSym.New(_, _, _) =>
+                        let rel = ConcurrentMap.getOrElsePut!(ramSym, ConcurrentMap.new(rc1), cdb);
+                        match toDenotation(ramSym) {
+                            case Denotation.Relational =>
+                                let tuple = Vector.map(evalTerm(env), terms);
+                                ConcurrentMap.put!(tuple, Reflect.default(), rel)
+                            case Denotation.Latticenal(bot, leq, lub, _) =>
+                                // assume that length(terms) > 0
+                                let len = Vector.length(terms);
+                                let keyList = terms |> Vector.map(evalTerm(env));
+                                let (key, latValList) = Vector.splitAt(len - 1, keyList);
+                                let latVal = match Vector.head(latValList) {
+                                    case None => bug!("Found predicate without terms")
+                                    case Some(k) => k
+                                };
+                                if (latVal `leq` bot) ()
+                                else ConcurrentMap.putWith!(lub, key, latVal, rel)
+                        }
+                    case _ =>
+                        let rel = MutMap.getOrElsePut!(ramSym, MutMap.new(rc1), db);
+                        match toDenotation(ramSym) {
+                            case Denotation.Relational =>
+                                let tuple = Vector.map(evalTerm(env), terms);
+                                MutMap.put!(tuple, Reflect.default(), rel)
+                            case Denotation.Latticenal(bot, leq, lub, _) =>
+                                // assume that length(terms) > 0
+                                let len = Vector.length(terms);
+                                let keyList = terms |> Vector.map(evalTerm(env));
+                                let (key, latValList) = Vector.splitAt(len - 1, keyList);
+                                let latVal = match Vector.head(latValList) {
+                                    case None => bug!("Found predicate without terms")
+                                    case Some(k) => k
+                                };
+                                if (latVal `leq` bot) ()
+                                else MutMap.putWith!(lub, key, latVal, rel)
+                        }
                 }
             case RelOp.If(test, then) =>
                 if (evalBoolExp(rc1, db, env, test)) {
-                    evalOp(rc1, db, env, then)
+                    evalOp(rc1, db, cdb, env, then)
                 } else {
                     ()
                 }
@@ -227,4 +256,11 @@ mod Fixpoint.Interpreter {
         case RamTerm.RowLoad(rowVar, index) => bug!("Illegal RowLoad with ${rowVar} ${index}")
         case _ => bug!("Illegal term ${term}")
     }
+
+    def getSymbolValues(rc: Region[r], db: Database[v, r], cdb: ConcurrentDatabase[v, r], sym: RamSym[v]): MutMap[Vector[v], v, r] \ r =
+        match sym {
+            case RamSym.New(_, _, _) => ConcurrentMap.getWithDefault(sym, ConcurrentMap.new(rc), cdb) |> ConcurrentMap.toMutMap(rc)
+            case _ => MutMap.getWithDefault(sym, MutMap.new(rc), db)
+        }
+
 }

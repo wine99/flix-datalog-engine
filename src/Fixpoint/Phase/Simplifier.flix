@@ -73,6 +73,7 @@ mod Fixpoint.Phase.Simplifier {
         case RamStmt.Merge(_, _) => Some(stmt)
         case RamStmt.Assign(_, _) => Some(stmt)
         case RamStmt.Purge(_) => Some(stmt)
+        case RamStmt.Prepare(_) => Some(stmt)
         case RamStmt.Seq(xs) =>
             Some(RamStmt.Seq(Vector.filterMap(simplifyHelper(stratum), xs)))
         case RamStmt.Par(xs) =>

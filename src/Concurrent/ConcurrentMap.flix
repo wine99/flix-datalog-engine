@@ -30,6 +30,10 @@ mod Concurrent2 {
         pub def toMutMap(rc: Region[r], m: ConcurrentMap[k, v, r]): MutMap[k, v, r] \ r =
             let ConcurrentMap(_, mm, _) = m;
             MutMap.MutMap(rc, ref (deref mm) @ rc)
+        
+        pub def fromMutMap(rc: Region[r], m: MutMap[k, v, r]): ConcurrentMap[k, v, r] \ r =
+            let MutMap.MutMap(_, mm) = m;
+            ConcurrentMap(rc, ref (deref mm) @ rc, ReentrantLock.newLock(rc, false))
 
         def unlock(l: ReentrantLock[r]): Unit \ r =
             match ReentrantLock.unlock(l) {
@@ -38,6 +42,7 @@ mod Concurrent2 {
                     // Error: unlock without holding the lock
                     bug!("Implementation error: lock not held")
             }
+
         ///
         /// Returns a string representation of the given ConcurrentMap `m`.
         ///

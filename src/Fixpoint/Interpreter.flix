@@ -21,13 +21,13 @@ mod Fixpoint.Interpreter {
     use Concurrent2.ConcurrentMap;
 
     pub type alias Database[v: Type, r: Region] = MutMap[RamSym[v], MutMap[Vector[v], v, r], r]
-    pub type alias ConcurrentDatabase[v: Type, r: Region] = ConcurrentMap[RamSym[v], ConcurrentMap[Vector[v], v, r], r]
+    pub type alias ConcurrentDatabase[v: Type, r: Region] = MutMap[RamSym[v], ConcurrentMap[Vector[v], v, r], r]
 
     pub type alias SearchEnv[v: Type, r: Region] = (Array[Vector[v], r], Array[v, r])
 
     @Internal
     pub def interpret(rc: Region[r], stmt: RamStmt[v]): Database[v, r] \ r with Order[v] =
-        interpretWithDatabase(rc, MutMap.new(rc), ConcurrentMap.new(rc), stmt)
+        interpretWithDatabase(rc, MutMap.new(rc), MutMap.new(rc), stmt)
 
     @Internal
     pub def interpretWithDatabase(rc: Region[r], db: Database[v, r], cdb: ConcurrentDatabase[v, r], stmt: RamStmt[v]): Database[v, r] \ r with Order[v] =
@@ -40,7 +40,7 @@ mod Fixpoint.Interpreter {
         match stmt {
             case RamStmt.Insert(relOp) => evalOp(rc, db, cdb, allocEnv(rc, 0, relOp), relOp)
             case RamStmt.Merge(srcSym, dstSym) =>
-                let dst = MutMap.getOrElsePut!(dstSym, MutMap.new(rc), db);
+                let dst = getSymbolValues(dstSym);
                 let src = getSymbolValues(srcSym);
                 match toDenotation(srcSym) {
                     case Denotation.Relational =>
@@ -53,9 +53,15 @@ mod Fixpoint.Interpreter {
                 MutMap.put!(lhs, src, db)
             case RamStmt.Purge(ramSym) => 
                 match ramSym {
-                    case RamSym.New(_, _, _) => ConcurrentMap.remove!(ramSym, cdb)
-                    case _ => MutMap.remove!(ramSym, db)
+                    case RamSym.New(_, _, _) => MutMap.put!(ramSym, ConcurrentMap.new(rc), cdb)
+                    case _ => MutMap.put!(ramSym, MutMap.new(rc), db)
                 }
+            case RamStmt.Prepare(ramSym) =>
+                match ramSym {
+                    case RamSym.New(_, _, _) => bug!("No need to prepare for symbol ${ramSym}")
+                    case _ => MutMap.getOrElsePut!(ramSym, MutMap.new(rc), db)
+                };
+                ()
             case RamStmt.Seq(stmts) => Vector.forEach(evalStmt(rc, db, cdb), stmts)
             case RamStmt.Par(stmts) =>
                 region rc2 {
@@ -108,7 +114,10 @@ mod Fixpoint.Interpreter {
             case RelOp.Project(terms, ramSym) =>
                 match ramSym {
                     case RamSym.New(_, _, _) =>
-                        let rel = ConcurrentMap.getOrElsePut!(ramSym, ConcurrentMap.new(rc1), cdb);
+                        let rel = match MutMap.get(ramSym, cdb) {
+                            case Some(cmap) => cmap
+                            case None => bug!("Symbol ${ramSym} not found in database")
+                        };
                         match toDenotation(ramSym) {
                             case Denotation.Relational =>
                                 let tuple = Vector.map(evalTerm(env), terms);
@@ -257,10 +266,16 @@ mod Fixpoint.Interpreter {
         case _ => bug!("Illegal term ${term}")
     }
 
-    def getSymbolValues(rc: Region[r], db: Database[v, r], cdb: ConcurrentDatabase[v, r], sym: RamSym[v]): MutMap[Vector[v], v, r] \ r =
-        match sym {
-            case RamSym.New(_, _, _) => ConcurrentMap.getWithDefault(sym, ConcurrentMap.new(rc), cdb) |> ConcurrentMap.toMutMap(rc)
-            case _ => MutMap.getWithDefault(sym, MutMap.new(rc), db)
+    def getSymbolValues(rc: Region[r], db: Database[v, r], cdb: ConcurrentDatabase[v, r], ramSym: RamSym[v]): MutMap[Vector[v], v, r] \ r =
+        match ramSym {
+            case RamSym.New(_, _, _) => match MutMap.get(ramSym, cdb) {
+                case Some(cmap) => cmap |> ConcurrentMap.toMutMap(rc)
+                case None => bug!("Symbol ${ramSym} not found in database")
+            }
+            case _ =>  match MutMap.get(ramSym, db) {
+                case Some(map) => map
+                case None => bug!("Symbol ${ramSym} not found in database")
+            }
         }
 
 }

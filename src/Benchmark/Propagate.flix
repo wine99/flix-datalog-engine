@@ -50,7 +50,7 @@ mod Benchmark.Fixpoint.Propagate {
             M(slowId(x) + 1) :- Z(x), M(x).
             N(slowId(x) + 1) :- Z(x), N(x).
             O(slowId(x) + 1) :- Z(x), O(x).
-            Z(slowId(x) + 1) :- Z(x), if x < 5.
+            Z(slowId(x) + 1) :- Z(x), if x < 6.
         };
         let f = #{
             Z(0).

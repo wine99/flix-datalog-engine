@@ -47,7 +47,7 @@ mod Concurrent2 {
         /// Returns a string representation of the given ConcurrentMap `m`.
         ///
         pub def toString(m: ConcurrentMap[k, v, r]): String \ r with ToString[k], ToString[v] = region rc {
-            let sb = StringBuilder.new(rc);
+            let sb = StringBuilder.empty(rc);
             StringBuilder.appendString!("ConcurrentMap#{", sb);
             forEachWithIndex((i, k, v) -> {
                 if (i < 1)
@@ -62,7 +62,7 @@ mod Concurrent2 {
         ///
         /// Returns a fresh empty mutable map.
         ///
-        pub def new(rc: Region[r]): ConcurrentMap[k, v, r] \ r =
+        pub def empty(rc: Region[r]): ConcurrentMap[k, v, r] \ r =
             ConcurrentMap(rc, ref Map.empty() @ rc, ReentrantLock.newLock(rc, false))
 
         ///

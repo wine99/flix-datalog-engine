@@ -58,7 +58,7 @@ mod Fixpoint.Solver {
             case Model(_) => d
             case Join(Model(m), cs) => region rc {
                 let db = Map.map(Map.toMutMap(rc), m) |> Map.toMutMap(rc);
-                let cdb = MutMap.new(rc);
+                let cdb = MutMap.empty(rc);
                 compiler(cs) |> Fixpoint.Interpreter.interpretWithDatabase(rc, db, cdb) |> toModel
             }
             case _ => bug!("Datalog normalization bug")
@@ -495,12 +495,12 @@ mod Fixpoint.Solver {
 
     def injectIntoX[f: Type -> Type, t: Type, ef: Eff](f: t -> List[Boxed] \ ef, p: PredSym, ts: f[t]): Datalog[Boxed] \ ef with Foldable[f] =
         region rc {
-            let db = MutMap.new(rc);
+            let db = MutMap.empty(rc);
             Foldable.foldLeft(() -> t -> {
                 let vs = f(t);
                 let arity = List.length(vs);
                 let ramSym = RamSym.Full(p, arity, Denotation.Relational);
-                let rel = MutMap.getOrElsePut!(ramSym, MutMap.new(rc), db);
+                let rel = MutMap.getOrElsePut!(ramSym, MutMap.empty(rc), db);
                 MutMap.put!(List.toVector(vs), Reflect.default(), rel)
             }, (), ts);
             toModel(db)
@@ -699,7 +699,7 @@ mod Fixpoint.Solver {
     ///
     def factsOf(f: List[v] -> t \ ef, p: PredSym, d: Datalog[v]): Vector[t] \ ef = match d {
         case Datalog(_, cs) => region rc {
-            let pFacts = MutList.new(rc);
+            let pFacts = MutList.empty(rc);
             Vector.forEach(c -> match c {
                 case Constraint(HeadAtom(headPred, _, terms), body) =>
                     if (headPred == p and Vector.isEmpty(body))
@@ -712,7 +712,7 @@ mod Fixpoint.Solver {
         }
         case Model(db) => region rc {
             use Fixpoint.Ast.Ram.toDenotation;
-            let pFacts = MutList.new(rc);
+            let pFacts = MutList.empty(rc);
             let qquery = ramSym -> match ramSym {
                 case RamSym.Full(predSym, _, _) => match predSym <=> p {
                     case Comparison.EqualTo => Comparison.EqualTo

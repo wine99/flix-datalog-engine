@@ -1,5 +1,5 @@
 pub def genFacts[v: Type](n: Int32, g: Random -> v \ IO, seed: Option[Int64]): List[v] \ IO =
-    let r = Random.newWithSeed(Option.getWithDefault(0i64, seed));
+    let r = Random.freshWithSeed(Option.getWithDefault(0i64, seed));
     List.repeat(n, 0) |>
     List.map(_ -> g(r))
 
@@ -29,4 +29,4 @@ pub def fib(n: Int32) : Int32 =
         fib(n - 1) + fib(n - 2)
 
 pub def slowId(n: Int32): Int32 = 
-    (fib(28) / fib(28)) * n
+    (fib(30) / fib(30)) * n

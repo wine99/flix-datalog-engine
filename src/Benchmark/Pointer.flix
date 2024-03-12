@@ -1,5 +1,5 @@
 mod Benchmark.Fixpoint.Pointer {
-    @benchmark
+    // @benchmark
     pub def pointsTo(): Int32 \ IO =
         let numInstructions = 500;
         let numVariables = 2000;
@@ -18,7 +18,7 @@ mod Benchmark.Fixpoint.Pointer {
         let pointsTo = query p, addressOf, assign, load, store select (x, y) from PointsTo(x, y);
         Vector.length(pointsTo)
 
-    @benchmark
+    // @benchmark
     pub def pointsTo2(): Int32 \ IO =
         let numInstructions = 500;
         let numVariables = 2000;

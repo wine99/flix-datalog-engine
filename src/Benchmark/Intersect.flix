@@ -2,7 +2,7 @@ mod Benchmark.Fixpoint.Intersect {
     def numRules(): Int32 = 1000
     def upperBound(): Int32 = 5000
 
-    @benchmark
+    // @benchmark
     pub def intersect1(): Int32 \ IO = {
         let upperBound = upperBound();
         let numRules = numRules();
@@ -27,7 +27,7 @@ mod Benchmark.Fixpoint.Intersect {
         |> Vector.length
     }
 
-    @benchmark
+    // @benchmark
     pub def intersect2(): Int32 \ IO = {
         let upperBound = upperBound();
         let numRules = numRules();

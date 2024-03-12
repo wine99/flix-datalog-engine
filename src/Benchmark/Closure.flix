@@ -11,7 +11,7 @@ mod Benchmark.Fixpoint.Closure {
 
     /// TODO special graphs: chains, multipile SCCs
 
-    @benchmark
+    // @benchmark
     pub def closure1(): Int32 \ IO =
         // edges/nodes = 10  -> 45
         // edges/nodes = 50  -> 1525
@@ -25,7 +25,7 @@ mod Benchmark.Fixpoint.Closure {
         query edges, p select (x, y) from Path(x, y)
         |> Vector.length
 
-    @benchmark
+    // @benchmark
     pub def closure2(): Int32 \ IO =
         let p = #{
             Edge(y, x) :- Edge(x, y).
@@ -36,7 +36,7 @@ mod Benchmark.Fixpoint.Closure {
         query edges, p select (x, y) from Path(x, y)
         |> Vector.length
 
-    @benchmark
+    // @benchmark
     pub def componentRep(): Int32 \ IO =
         let p = #{
             Reachable(x, x) :- Edge(x, _).
@@ -51,7 +51,7 @@ mod Benchmark.Fixpoint.Closure {
         query edges, p select rep from ComponentRep(_, rep)
         |> Vector.length
 
-    @benchmark
+    // @benchmark
     pub def satellite(): Int32 \ IO =
         let p = #{
             Orbits(x, y) :- Orbits(x, z), Orbits(z, y).

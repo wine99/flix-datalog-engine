@@ -20,3 +20,13 @@ pub def genFact5(max: Int32, r: Random): (Int32, Int32, Int32, Int32, Int32) \ I
 
 pub def genFact6(max: Int32, r: Random): (Int32, Int32, Int32, Int32, Int32, Int32) \ IO =
     (Random.nextNatWithMax(r, max), Random.nextNatWithMax(r, max), Random.nextNatWithMax(r, max), Random.nextNatWithMax(r, max), Random.nextNatWithMax(r, max), Random.nextNatWithMax(r, max))
+
+
+pub def fib(n: Int32) : Int32 =
+    if (n <= 1) 
+        1
+    else
+        fib(n - 1) + fib(n - 2)
+
+pub def slowId(n: Int32): Int32 = 
+    (fib(28) / fib(28)) * n

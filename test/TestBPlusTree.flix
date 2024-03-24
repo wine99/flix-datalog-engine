@@ -10,7 +10,7 @@ def testBPTree01(): Bool \ IO = region rc {
     insert(20, 20, t);
     println(toString(t));
     toString(t) == "[(20, 20)] "
-    and get(20, t) == Some(20)  
+    and get(20, t) == Some(20)
 }
 
 @Test
@@ -204,4 +204,28 @@ def testBPTree10(): Bool \ IO = region rc {
     and get(40, t) == Some(40)
     and get(17, t) == Some(17)
     and get(16, t) == Some(16)
+}
+
+@Test
+def testBPTree11(): Bool \ IO = region rc {
+    let t = empty(rc, 5);
+    let keys = Vector#{95, 12, 491, 924, 950, 229, 814, 577, 710, 584, 197, 614, 103, 800, 915, 741, 399, 830, 395, 276, 292, 979, 910, 654, 471, 35, 562, 992, 758, 307, 707, 932, 207, 727, 357, 616, 458, 303, 576, 92, 680, 299, 579, 171, 199, 183, 519, 166, 777, 585};
+    foreach (k <- keys) {
+        insert(k, k, t)
+    };
+    println(toString(t));
+    Vector.map(k -> get(k, t) == Some(k), keys)
+    |> Vector.foldLeft(b -> a -> b and a, true)
+}
+
+def testBPTree12(): Bool \ IO = region rc {
+    let t = empty(rc, 4);
+    let keys = Vector#{95, 12, 491, 924, 950, 229, 814, 577, 710, 584, 197, 614, 103, 800, 915, 741, 399, 830, 395, 276, 292, 979, 910, 654, 471, 35, 562, 992, 758, 307, 707, 932, 207, 727, 357, 616, 458, 303, 576, 92, 680, 299, 579, 171, 199, 183, 519, 166, 777, 585};
+    foreach (k <- keys) {
+        insert(k, k, t);
+        println(toString(t))
+    };
+    println(toString(t));
+    Vector.map(k -> get(k, t) == Some(k), keys)
+    |> Vector.foldLeft(b -> a -> b and a, true)
 }

@@ -36,7 +36,7 @@ mod BPlusTree {
         let BPlusTree(rc, root) = t;
         // masked_cast(println("inserting ${k} ${v}"));
         let leaf = if (isEmpty(t)) deref root else getLeaf(k, deref root);
-        // masked_cast(println(nodeToString(leaf)));
+        // masked_cast(println(nodeToString(rc, leaf)));
         let (i, vv) = if (isEmpty(t)) (0, None) else searchNode(k, leaf);
         // masked_cast(println(i));
         match leaf {
@@ -65,8 +65,8 @@ mod BPlusTree {
             }
         }
 
-    pub def toString(t: BPlusTree[k, v, r]): String \ r with ToString[k], ToString[v] = region rc {
-        let BPlusTree(_, root) = t;
+    pub def toString(t: BPlusTree[k, v, r]): String \ r with ToString[k], ToString[v] =
+        let BPlusTree(rc, root) = t;
         let queue = MutDeque.empty(rc);
         let sb = StringBuilder.empty(rc);
         MutDeque.pushBack((0, deref root), queue);
@@ -74,33 +74,22 @@ mod BPlusTree {
             case None => ()
             case Some((level, node)) =>
                 if (level > previousLevel) StringBuilder.appendString!("\n", sb) else ();
-                StringBuilder.appendString!(nodeToString(node), sb);
+                StringBuilder.appendString!(nodeToString(rc, node), sb);
                 StringBuilder.appendString!(" ", sb);
-                match node {
-                    case Node.Inner(c, _, children, _, _) =>
-                        let validChildren = Array.toVector(children) |> Vector.slice(start = 0, end = deref c + 1);
-                        foreach(child <- validChildren) {
-                            MutDeque.pushBack((level + 1, child), queue)
-                        }
-                    case Node.Leaf(_, _, _, _, _) =>
-                        ()
+                let validChildren = validChildren(rc, node) |> Array.toVector;
+                foreach (child <- validChildren) {
+                    MutDeque.pushBack((level + 1, child), queue)
                 };
                 loop(level)
         };
         loop(0);
         StringBuilder.toString(sb)
-    }
 
-    def nodeToString[k: Type, v: Type, r: Region](node: Node[k, v, r]): String \ r with ToString[k], ToString[v] = match node {
-        case Node.Inner(c, keys, _, _, _) => region rc {
-            let validKeys = Array.slice(rc, start = 0, end = deref c, keys);
-            "[" + Array.join(" ", validKeys) + "]"
-        }
-        case Node.Leaf(c, keys, vals, _, _) => region rc {
-            let validKeys = Array.slice(rc, start = 0, end = deref c, keys);
-            let validVals = Array.slice(rc, start = 0, end = deref c, vals);
-            "[" + Array.join(" ", Array.zip(rc, validKeys, validVals)) + "]"
-        }
+    def nodeToString(rc: Region[r], node: Node[k, v, r]): String \ r with ToString[k], ToString[v] = match node {
+        case Node.Inner(_, _, _, _, _) =>
+            "[" + Array.join(" ", validKeys(rc, node)) + "]"
+        case Node.Leaf(_, _, _, _, _) =>
+            "[" + Array.join(" ", Array.zip(rc, validKeys(rc, node), validVals(rc, node))) + "]"
     }
 
     ///
@@ -199,6 +188,7 @@ mod BPlusTree {
     /// TODO not so elegant to have the two optional parameters
     def splitNode!(rc: Region[r], node: Node[k, v, r], overflowedKey: k, overflowedVal: Option[v], overflowedChild: Option[Node[k, v, r]]): (Node[k, v, r], k) \ r with ToString[k], ToString[v] = match node {
         case Node.Leaf(c, keys, vals, right, parent) =>
+            // masked_cast(println("splitting ${nodeToString(rc, node)}"));
             let cc = deref c;
             let mid = (cc + 1) / 2;
             let newKeys = Array.empty(rc, cc);
@@ -222,10 +212,13 @@ mod BPlusTree {
                     let newRoot = Node.Inner(Ref.fresh(rc, 0), Array.empty(rc, cc), newRootChildren, Ref.fresh(rc, None), Ref.fresh(rc, None));
                     parent := Some(newRoot);
                     newParent := Some(newRoot)
-                case _ => ()
+                case Some(_p) =>
+                    // masked_cast(println("parent: ${nodeToString(rc, p)}"));
+                    ()
             };
             (newNode, Array.get(0, newKeys))
         case Node.Inner(c, keys, children, right, parent) =>
+            // masked_cast(println("splitting ${nodeToString(rc, node)}"));
             let cc = deref c;
             let mid = (cc + 1) / 2;
             let newKeys = Array.empty(rc, cc);
@@ -240,6 +233,9 @@ mod BPlusTree {
                 case None    => bug!("`splitNode` should receive an overflowed child for an inner node")
             }, cc - mid, newChildren);
             let newNode = Node.Inner(Ref.fresh(rc, cc - mid), newKeys, newChildren, newRight, newParent);
+            foreach (child <- validChildren(rc, newNode) |> Array.toVector) {
+                setParent(child, Some(newNode))
+            };
             c := mid;
             right := Some(newNode);
             match deref parent {
@@ -249,7 +245,9 @@ mod BPlusTree {
                     let newRoot = Node.Inner(Ref.fresh(rc, 0), Array.empty(rc, cc), newRootChildren, Ref.fresh(rc, None), Ref.fresh(rc, None));
                     parent := Some(newRoot);
                     newParent := Some(newRoot)
-                case _ => ()
+                case Some(_p) =>
+                    // masked_cast(println("parent: ${nodeToString(rc, p)}"));
+                    ()
             };
             (newNode, Array.get(mid, keys))
     }
@@ -296,6 +294,27 @@ mod BPlusTree {
             case Node.Leaf(_, _, _, _, parent)  => deref parent
         }
 
+    def setParent(node: Node[k, v, r], parent: Option[Node[k, v, r]]): Unit \ r =
+        match node {
+            case Node.Inner(_, _, _, _, p) => p := parent
+            case Node.Leaf(_, _, _, _, p)  => p := parent
+        }
+
+    def validKeys(rc: Region[r], node: Node[k, v, r]): Array[k, r] \ r = match node {
+        case Node.Inner(c, keys, _, _, _) => Array.slice(rc, start = 0, end = deref c, keys)
+        case Node.Leaf(c, keys, _, _, _)  => Array.slice(rc, start = 0, end = deref c, keys)
+    }
+
+    def validVals(rc: Region[r], node: Node[k, v, r]): Array[v, r] \ r = match node {
+        case Node.Leaf(c, _, vals, _, _) => Array.slice(rc, start = 0, end = deref c, vals)
+        case Node.Inner(_, _, _, _, _)   => Array.empty(rc, 0)
+    }
+
+    def validChildren(rc: Region[r], node: Node[k, v, r]): Array[Node[k, v, r], r] \ r = match node {
+        case Node.Inner(c, _, children, _, _) => Array.slice(rc, start = 0, end = deref c + 1, children)
+        case Node.Leaf(_, _, _, _, _)         => Array.empty(rc, 0)
+    }
+
     @Test
     pub def testSplit01(): Bool \ IO = region rc {
         let t = BPlusTree.empty(rc, 5);
@@ -305,8 +324,8 @@ mod BPlusTree {
         BPlusTree.insert(25, 25, t);
         let BPlusTree.BPlusTree(_, root) = t;
         let (newNode, newKey) = BPlusTree.splitNode!(rc, deref root, 35, Some(35), None);
-        println(nodeToString(deref root));
-        println(nodeToString(newNode));
+        println(nodeToString(rc, deref root));
+        println(nodeToString(rc, newNode));
         println(newKey);
         match deref root {
             case Node.Leaf(_, _, _, _, parent) =>
@@ -316,30 +335,6 @@ mod BPlusTree {
                         true
                     case _ => false
                 }
-            case _ => false
-        }
-    }
-
-    @Test
-    pub def testSplit02(): Bool \ IO = region rc {
-        let t = empty(rc, 5);
-        insert(20, 20, t);
-        insert(10, 10, t);
-        insert(30, 30, t);
-        insert(25, 25, t);
-        insert(15, 15, t);
-        insert(5, 5, t);
-        insert(18, 18, t);
-        insert(3, 3, t);
-        let BPlusTree.BPlusTree(_, root) = t;
-        println(nodeToString(deref root));
-        match deref root {
-            case Node.Inner(c, _, children, _, _) =>
-                let validChildren = Array.toVector(children) |> Vector.slice(start = 0, end = deref c);
-                foreach (child <- validChildren) {
-                    println(nodeToString(child))
-                };
-                true
             case _ => false
         }
     }

@@ -6,7 +6,7 @@ pub enum BPlusTree[k: Type, v: Type, r: Region](Region[r], Ref[Node[k, v, r], r]
 ///
 /// A `Node` contains: a count (of existing keys), keys, children or values (if inner or leaf)
 /// a link to the right sibling, and a link to the parent
-/// TODO implementation without the parent link? right-sibling to support deletion?
+/// TODO implementation without the parent link?
 /// TODO redistribution when inserting into a full node
 ///
 enum Node[k: Type, v: Type, r: Region] {
@@ -15,9 +15,16 @@ enum Node[k: Type, v: Type, r: Region] {
 }
 
 mod BPlusTree {
+
+    ///
+    /// Returns a new `m`-way B+Tree, i.e. each node has capacity `m-1` and at most `m` children.
+    ///
     pub def empty(rc: Region[r], m: Int32): BPlusTree[k, v, r] \ r =
         BPlusTree(rc, Ref.fresh(rc, Node.Leaf(Ref.fresh(rc, 0), Array.empty(rc, m - 1), Array.empty(rc, m - 1), Ref.fresh(rc, None), Ref.fresh(rc, None))))
 
+    ///
+    /// Returns `true` if and only if the tree is empty.
+    ///
     pub def isEmpty(t: BPlusTree[k, v, r]): Bool \ r =
         let BPlusTree(_, root) = t;
         match deref root {
@@ -25,13 +32,19 @@ mod BPlusTree {
             case _ => false
         }
 
-    pub def get(k: k, t: BPlusTree[k, v, r]): Option[v] \ r with Order[k], ToString[k], ToString[v] =
+    ///
+    /// Returns `Some(v)` if `k -> v` is in the B+Tree `t`. Otherwise returns `None`.
+    ///
+    pub def get(k: k, t: BPlusTree[k, v, r]): Option[v] \ r with Order[k] =
         let BPlusTree(_, root) = t;
         let leaf = getLeaf(k, deref root);
         // masked_cast(println(nodeToString(leaf)));
         let (_, v) = searchNode(k, leaf);
         v
 
+    ///
+    /// Insert the binding `k -> v` into the B+Tree `t`, replacing the existing binding.
+    ///
     pub def insert(k: k, v: v, t: BPlusTree[k, v, r]): Unit \ r with Order[k], ToString[k], ToString[v] =
         let BPlusTree(rc, root) = t;
         // masked_cast(println("inserting ${k} ${v}"));
@@ -65,6 +78,11 @@ mod BPlusTree {
             }
         }
 
+    ///
+    /// Returns a string representation of the B+Tree.
+    ///
+    /// Each line represents a level of the tree, with the root at the top.
+    ///
     pub def toString(t: BPlusTree[k, v, r]): String \ r with ToString[k], ToString[v] =
         let BPlusTree(rc, root) = t;
         let queue = MutDeque.empty(rc);
@@ -94,6 +112,7 @@ mod BPlusTree {
 
     ///
     /// Search down to a leaf node where the key would be found or inserted.
+    ///
     /// TODO Improve performance: if find an exact match in inner node, go to the leftmost leaf of the right child
     ///
     def getLeaf(k: k, node: Node[k, v, r]): Node[k, v, r] \ r with Order[k] = match node {
@@ -104,7 +123,9 @@ mod BPlusTree {
     }
 
     ///
-    /// Search for a key in a node. For internal nodes, return the index
+    /// Search for a key in a node. Returns an index and the value if the node is a leaf and the key exists.
+    /// 
+    /// For internal nodes, return the index
     /// of the child to follow and `None`. For leaf nodes, if the key exists,
     /// return the index and the value. If the key does not exist, return the index
     /// of where the key would be inserted and `None`.
@@ -121,6 +142,13 @@ mod BPlusTree {
         }
     }
 
+    ///
+    /// Binary search for a key in an array of keys in an inner node. Returns the index of the child to follow.
+    ///
+    /// The search range is inclusive, and the search should always succeed. If in the initial call,
+    /// `start < end` holds, `start` is returned. This handles the case where there is no key in the array,
+    /// which only happens when a new root is created.
+    ///
     def searchInner(k: k, start: Int32, end: Int32, keys: Array[k, r]): Int32 \ r with Order[k] =
         if (start > end)
             start
@@ -133,9 +161,16 @@ mod BPlusTree {
                 case _                   => if (end == mid) mid + 1 else searchInner(k, mid + 1, end, keys)
             }
 
+    ///
+    /// Binary search for a key in an array of keys in a leaf node. Returns the index of the key if the key is found.
+    /// Otherwise returns the index of where the key would be inserted.
+    ///
+    /// The search range is inclusive, and the search should always succeed. If the the key is found,
+    /// `Result.Ok(index)` is returned. If the key is not found, `Result.Err(index)` is returned.
+    ///
     def searchLeaf(k: k, start: Int32, end: Int32, keys: Array[k, r]): Result[Int32, Int32] \ r with Order[k] =
         if (start > end)
-            bug!("`searchLeaf` should always find a key")
+            bug!("`searchLeaf` should always find a index")
         else
             let mid = (start + end) / 2;
             let midKey = Array.get(mid, keys);
@@ -146,7 +181,7 @@ mod BPlusTree {
             }
 
     ///
-    /// Insert `v` at index `i` in an array `arr` with `c` elements, shifting the elements to the right,
+    /// Insert `v` at index `i` in an array `arr` where `[0, c]` are valid elements, shifting the elements to the right,
     /// possibly returning the overflowed element.
     ///
     def arrayInsert!(v: v, i: Int32, c: Int32, arr: Array[v, r]): Option[v] \ r =
@@ -158,7 +193,8 @@ mod BPlusTree {
             ret
 
     ///
-    /// Shift the elements of an array `arr` with `c` elements to the right, starting at index `i` + 1.
+    /// Shift the elements of an array `arr` where `[0, c]` are valid elements to the right, starting at index `i` + 1.
+    /// If an element is shifted out of the array, return it.
     ///
     def arrayShiftRight!(i: Int32, c: Int32, arr: Array[v, r]): Option[v] \ r =
         def loop(ii, cc) = {
@@ -177,16 +213,22 @@ mod BPlusTree {
             None
         }
 
-    def _isOverflow(node: Node[k, v, r]): Bool \ r =
+    def _isFull(node: Node[k, v, r]): Bool \ r =
         match node {
             case Node.Inner(c, keys, _, _, _) => deref c == Array.length(keys)
             case Node.Leaf(c, keys, _, _, _)  => deref c == Array.length(keys)
         }
 
-    /// Split a node into two nodes, returning the new node and the key to be inserted in the parent.
+    ///
+    /// Takes a full node and a pair of overflowed key-value (if the node is a leaf node)
+    /// or a pair of overflowed key-child (if the node is an inner node), splits the node into two nodes,
+    /// with the overflowed key-value or key-child placed in the new node, returns the new node and the key to be inserted in the parent.
+    ///
     /// The splitted node and the new node will have the same parent, hence a new root will be created if necessary.
+    ///
     /// TODO not so elegant to have the two optional parameters
-    def splitNode!(rc: Region[r], node: Node[k, v, r], overflowedKey: k, overflowedVal: Option[v], overflowedChild: Option[Node[k, v, r]]): (Node[k, v, r], k) \ r with ToString[k], ToString[v] = match node {
+    ///
+    def splitNode!(rc: Region[r], node: Node[k, v, r], overflowedKey: k, overflowedVal: Option[v], overflowedChild: Option[Node[k, v, r]]): (Node[k, v, r], k) \ r = match node {
         case Node.Leaf(c, keys, vals, right, parent) =>
             // masked_cast(println("splitting ${nodeToString(rc, node)}"));
             let cc = deref c;
@@ -252,6 +294,9 @@ mod BPlusTree {
             (newNode, Array.get(mid, keys))
     }
 
+    ///
+    /// Copy the elements of array `src` from index `start`(inclusive) to `end`(exclusive) to an array `dest` starting at index `destStart`.
+    ///
     def copyOfRange!(src: Array[v, r], start: Int32, end: Int32, dest: Array[v, r], destStart: Int32): Unit \ r =
         if (start >= end) ()
         else
@@ -259,7 +304,12 @@ mod BPlusTree {
             Array.put(v, destStart, dest);
             copyOfRange!(src, start + 1, end, dest, destStart + 1)
 
-    def insertInner!(rc: Region[r], k: k, n: Node[k, v, r], node: Node[k, v, r]): Unit \ r with Order[k], ToString[k], ToString[v] = match node {
+    ///
+    /// Insert a key `k` and a node `n` into an inner node `node`.
+    ///
+    /// The operation might recurse if `node` overflows. If the root overflows, a new root is created.
+    ///
+    def insertInner!(rc: Region[r], k: k, n: Node[k, v, r], node: Node[k, v, r]): Unit \ r with Order[k] = match node {
         case Node.Inner(c, keys, children, _, parent) =>
             let (i, _) = searchNode(k, node);
             match (arrayInsert!(k, i, deref c, keys), arrayInsert!(n, i + 1, deref c + 1, children)) {

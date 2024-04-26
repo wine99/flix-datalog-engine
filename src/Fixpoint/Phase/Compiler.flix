@@ -72,7 +72,7 @@ mod Fixpoint.Phase.Compiler {
     /// and Eval-Rule-Incr is the code emitted by `compileRuleIncr`.
     ///
     def compileStratum(stratum: List[Constraint[v]]): List[RamStmt[v]] = region rc {
-        let stmts = MutList.new(rc);
+        let stmts = MutList.empty(rc);
 
         let evalRules = stratum |> List.flatMap(compileRule) |> List.toVector |> RamStmt.Par;
         MutList.push!(evalRules, stmts);
@@ -81,7 +81,7 @@ mod Fixpoint.Phase.Compiler {
             let arity = Vector.length(terms);
             Map.insert(pred, (arity, den))
         }, Map#{}, stratum);
-        let loopBody = MutList.new(rc);
+        let loopBody = MutList.empty(rc);
 
         Map.forEach(predSym -> match (arity, den) -> {
             let full = RamSym.Full(predSym, arity, den);
@@ -137,7 +137,7 @@ mod Fixpoint.Phase.Compiler {
     ///
     def compileRule(rule: Constraint[v]): List[RamStmt[v]] = match rule {
         case Constraint(HeadAtom(headSym, headDen, headTerms), body) => region rc {
-            let stmts = MutList.new(rc);
+            let stmts = MutList.empty(rc);
             let augBody = augmentBody(body);
             let env = unifyVars(augBody);
             let ramTerms = Vector.map(compileHeadTerm(env), headTerms);
@@ -195,7 +195,7 @@ mod Fixpoint.Phase.Compiler {
     ///
     def compileRuleIncr(rule: Constraint[v]): List[RamStmt[v]] = match rule {
         case Constraint(HeadAtom(headSym, headDen, headTerms), body) => region rc {
-            let stmts = MutList.new(rc);
+            let stmts = MutList.empty(rc);
             let augBody = augmentBody(body);
             let env = unifyVars(augBody);
             let ramTerms = Vector.map(compileHeadTerm(env), headTerms);

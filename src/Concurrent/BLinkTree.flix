@@ -12,13 +12,17 @@ mod Concurrent2 {
     }
 
     // TODO do we need atomicity for deref?
-    /// we do need that change of the root ref be seen by all threads immediately
+    /// We do need that change of the root ref be seen by all threads immediately
+    /// so that when concurrent root split happens, the call to getRootLevel will return the correct level.
 
     mod BLinkTree {
 
         use Concurrent2.Node
         use Concurrent2.ReentrantReadWriteLock
 
+        ///
+        /// Returns a new `m`-way B+Tree, i.e. each node has capacity `m-1` and at most `m` children.
+        ///
         pub def empty(rc: Region[r], m: Int32): BLinkTree[k, v, r] \ r =
             BLinkTree(rc, Ref.fresh(rc, Node.Leaf(
                 0,
@@ -29,6 +33,9 @@ mod Concurrent2 {
                 ReentrantReadWriteLock.newLock(rc, false)
             )))
 
+        ///
+        /// Returns `true` if and only if the tree is empty.
+        ///
         pub def isEmpty(t: BLinkTree[k, v, r]): Bool \ r =
             let BLinkTree(_, root) = t;
             match deref root {
@@ -36,6 +43,155 @@ mod Concurrent2 {
                     Ref.get(c) == 0
                 case _ => false
             }
+
+        ///
+        /// Returns the number of elements in the B+Tree.
+        ///
+        /// FIXME No locking is performed. The result could be wrong if the tree is being modified concurrently.
+        ///
+        pub def size(t: BLinkTree[k, v, r]): Int32 \ r =
+            let BLinkTree(_, root) = t;
+            let leaf = leftmost(deref root);
+            def loop(acc, node) = match node {
+                case Node.Leaf(_, c, _, _, right, _) =>
+                    let cc = Ref.get(c);
+                    loop(acc + cc, deref right)
+                case _ => acc
+            };
+            loop(0, leaf)
+
+        ///
+        /// Returns `Some(v)` if `k -> v` is in the B+Tree `t`. Otherwise returns `None`.
+        ///
+        pub def get(k: k, t: BLinkTree[k, v, r]): Option[v] \ r with Order[k] =
+            let BLinkTree(_, root) = t;
+            let (leaf, _) = descendToLeaf(k, deref root, Nil);
+            let (node, i) = searchLeaf(k, leaf, false);
+            match node {
+                case Node.Leaf(_, c, keys, values, _, lock) =>
+                    if (i < deref c and k == Array.get(i, keys)) {
+                        let ret = Some(Array.get(i, values));
+                        ReentrantReadWriteLock.unlockRead(lock);
+                        ret
+                    } else {
+                        ReentrantReadWriteLock.unlockRead(lock);
+                        None
+                    }
+                case _ => bug!("searchLeaf returned a non-leaf node")
+            }
+
+        ///
+        /// Insert the binding `k -> v` into the B+Tree `t`, replacing the existing binding.
+        ///
+        pub def put!(k: k, v: v, t: BLinkTree[k, v, r]): Unit \ r with Order[k] =
+            let BLinkTree(rc, root) = t;
+            let (leaf, stack) = descendToLeaf(k, deref root, Nil);
+            insertLeaf!(rc, k, v, leaf, stack, root)
+
+        ///
+        /// Inserts all key-value pairs in `kvs` into the B+Tree `t`, replacing existing bindings.
+        ///
+        pub def putAll!(kvs: m[(k, v)], t: BLinkTree[k, v, r]): Unit \ r with Order[k], Foldable[m] =
+            Foldable.forEach(kv -> put!(fst(kv), snd(kv), t), kvs)
+
+        ///
+        /// Returns `v` if `k => v` is in `t`. Otherwise, returns `d`.
+        ///
+        pub def getWithDefault(k: k, d: v, t: BLinkTree[k, v, r]): v \ r with Order[k] =
+            Option.getWithDefault(d, get(k, t))
+
+        ///
+        /// Returns `true` if and only if `t` contains the key `k`.
+        ///
+        pub def memberOf(k: k, t: BLinkTree[k, v, r]): Bool \ r with Order[k] =
+            not Option.isEmpty(get(k, t))
+
+        ///
+        /// Updates `t` with `k => f(k, v, v1)` if `k => v1` is in `t`.
+        ///
+        /// Otherwise, updates `t` with `k => v`.
+        ///
+        pub def putWith!(f: (v, v) -> v \ ef, k: k, v: v, t: BLinkTree[k, v, r]): Unit \ { ef, r } with Order[k] =
+            // TODO
+            unchecked_cast(??? as _ \ { ef, r })
+
+        ///
+        /// Returns `v'` if `k -> v'` is in the B+Tree `t`.
+        ///
+        /// Otherwise updates `t` with a new mapping `k -> v` and returns `v`.
+        ///
+        pub def getOrElsePut!(k: k, v: v, t: BLinkTree[k, v, r]): v \ r with Order[k] =
+            // TODO
+            unchecked_cast(??? as _ \ { r })
+
+        ///
+        /// Applies `f` to all key-value pairs from `t` where `p(k)` returns `Comparison.EqualTo`.
+        ///
+        /// The function `f` must be impure.
+        ///
+        pub def rangeQueryWith(p: k -> Comparison \ ef1, f: (k, v) -> Unit \ ef2, t: BLinkTree[k, v, r]): Unit \ { ef1, ef2, r } =
+            // TODO
+            unchecked_cast(??? as _ \ { ef1, ef2, r })
+
+        ///
+        /// Extracts a range of key-value pairs from `t`.
+        ///
+        /// That is, the result is a list of all pairs `(k, v)` where `p(k)` returns `Equal`.
+        ///
+        pub def rangeQuery(p: k -> Comparison \ ef1, f: (k, v) -> a \ ef2, t: BLinkTree[k, v, r]): List[a] \ { ef1, ef2, r } with Order[k] = region rc {
+            let buffer = MutList.empty(rc);
+            let g = k -> v -> MutList.push!(f(k, v), buffer);
+            rangeQueryWith(p, g, t);
+            MutList.toList(buffer)
+        }
+
+        ///
+        /// Applies `f` to every key-value pair of `t`.
+        ///
+        pub def forEach(f: (k, v) -> Unit \ ef, t: BLinkTree[k, v, r]): Unit \ { ef, r } =
+            // TODO
+            unchecked_cast(??? as _ \ { ef, r })
+
+        ///
+        /// Merges the B+Tree `t1` into the B+Tree `t2` in a left-biased manner.
+        ///
+        /// That is, key collisions are resolved by taking the mapping from `t1`.
+        ///
+        pub def merge!(t1: BLinkTree[k, v, r1], t2: BLinkTree[k, v, r2]): Unit \ { r1, r2 } with Order[k] =
+            forEach((k1, v1) -> put!(k1, v1, t2), t1)
+
+        ///
+        /// Merges the B+Tree `t1` into the B+Tree `t2` in a left-biased manner,
+        /// solving collisions with the function `f` applied to `v1` and `v2`.
+        ///
+        pub def mergeWith!(f: (v, v) -> v \ ef, t1: BLinkTree[k, v, r1], t2: BLinkTree[k, v, r2]): Unit \ { ef, r1, r2 } with Order[k] =
+            forEach((k1, v1) -> putWith!(f, k1, v1, t2), t1)
+
+        ///
+        /// Returns the B+Tree `t` as an immutable map.
+        ///
+        pub def fromMap(rc: Region[r], m: Int32, map: Map[k, v]): BLinkTree[k, v, r] \ r with Order[k] =
+            let t = empty(rc, m);
+            Map.forEach((k, v) -> put!(k, v, t), map);
+            t
+
+        ///
+        /// Returns a `m`-way B+Tree from a map.
+        ///
+        pub def toMap(t: BLinkTree[k, v, r]): Map[k, v] \ r with Order[k] = region rc {
+            let m = MutMap.empty(rc);
+            forEach((k, v) -> MutMap.put!(k, v, m), t);
+            MutMap.toMap(m)
+        }
+
+        ///
+        /// Returns the leftmost leaf node of a subtree. No locking is performed.
+        ///
+        def leftmost(node: Node[k, v, r]): Node[k, v, r] \ r = match node {
+            case Node.Inner(_, _, _, children, _, _) => leftmost(Array.get(0, children))
+            case Node.Leaf(_, _, _, _, _, _)  => node
+            case Node.Empty => bug!("leftmost called with an empty node")
+        }
 
         ///
         /// Returns a string representation of the B+Tree.
@@ -97,32 +253,7 @@ mod Concurrent2 {
             case Node.Empty => Array.empty(rc, 0)
         }
 
-        pub def get(k: k, t: BLinkTree[k, v, r]): Option[v] \ r with Order[k] =
-            let BLinkTree(_, root) = t;
-            let (leaf, _) = descendToLeaf(k, deref root, Nil);
-            let (node, i) = searchLeaf(k, leaf, false);
-            match node {
-                case Node.Leaf(_, c, keys, values, _, lock) =>
-                    if (i < deref c and k == Array.get(i, keys)) {
-                        let ret = Some(Array.get(i, values));
-                        ReentrantReadWriteLock.unlockRead(lock);
-                        ret
-                    } else {
-                        ReentrantReadWriteLock.unlockRead(lock);
-                        None
-                    }
-                case _ => bug!("searchLeaf returned a non-leaf node")
-            }
-
-        pub def put!(k: k, v: v, t: BLinkTree[k, v, r]): Unit \ r with Order[k], ToString[k], ToString[v] =
-            let BLinkTree(rc, root) = t;
-            let (leaf, stack) = descendToLeaf(k, deref root, Nil);
-            insertLeaf!(rc, k, v, leaf, stack, root)
-
-        pub def putAll!(kvs: m[(k, v)], t: BLinkTree[k, v, r]): Unit \ r with Order[k], Foldable[m], ToString[k], ToString[v] =
-            Foldable.forEach(kv -> put!(fst(kv), snd(kv), t), kvs)
-
-        def insertLeaf!(rc: Region[r], k: k, v: v, node: Node[k, v, r], stack: List[Node[k, v, r]], root: Ref[Node[k, v, r], r]): Unit \ r with Order[k], ToString[k], ToString[v] =
+        def insertLeaf!(rc: Region[r], k: k, v: v, node: Node[k, v, r], stack: List[Node[k, v, r]], root: Ref[Node[k, v, r], r]): Unit \ r with Order[k] =
             let (dstNode, i) = searchLeaf(k, node, true);
             // unchecked_cast(println("dstNode: ${nodeToString(rc, dstNode)}, ${i}") as Unit \ r);
             match dstNode {
@@ -203,6 +334,7 @@ mod Concurrent2 {
             }
 
         def redescend!(rc: Region[r], k: k, child: Node[k, v, r], toLevel: Int32, root: Ref[Node[k, v, r], r]): Unit \ r with Order[k] =
+            // unchecked_cast(println("redescend!") as Unit \ r);
             let (node, stack) = descendToLevel(k, toLevel, deref root, Nil);
             insertInner!(rc, k, child, node, stack, root)
 
@@ -236,9 +368,9 @@ mod Concurrent2 {
                         (node, stack)
                     } else {
                         let (child, new_stack) = searchInner(k, node, stack);
-                        descendToLevel(k, level, child, new_stack)
+                        descendToLevel(k, toLevel, child, new_stack)
                     }
-                case _ => bug!("should never receive a leaf node")
+                case _ => bug!("redescending has gone below the target level")
             }
 
         def isNull(node: Node[k, v, r]): Bool = match node {
@@ -399,6 +531,7 @@ mod Concurrent2 {
 
         ///
         /// Copy the elements of array `src` from index `start`(inclusive) to `end`(exclusive) to an array `dest` starting at index `destStart`.
+        /// TODO use Java array copy
         ///
         def copyOfRange!(src: Array[v, r], start: Int32, end: Int32, dest: Array[v, r], destStart: Int32): Unit \ r =
             if (start >= end) ()
@@ -407,4 +540,5 @@ mod Concurrent2 {
                 Array.put(v, destStart, dest);
                 copyOfRange!(src, start + 1, end, dest, destStart + 1)
         }
+
 }

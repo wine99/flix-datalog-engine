@@ -38,13 +38,12 @@ def testBPTree03(): Bool = region rc {
 }
 
 @Test
-def testBPTree04(): Bool \ IO = region rc {
+def testBPTree04(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
     put!(30, 30, t);
     put!(25, 25, t);
-    println(toString(t));
     toString(t) == "[(10, 10) (20, 20) (25, 25) (30, 30)] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -53,14 +52,13 @@ def testBPTree04(): Bool \ IO = region rc {
 }
 
 @Test
-def testBPTree05(): Bool \ IO = region rc {
+def testBPTree05(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
     put!(30, 30, t);
     put!(25, 25, t);
     put!(15, 15, t);
-    println(toString(t));
     toString(t) == "[15] \n[(10, 10) (15, 15)] [(20, 20) (25, 25) (30, 30)] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -90,7 +88,7 @@ def testBPTree06(): Bool = region rc {
 }
 
 @Test
-def testBPTree07(): Bool \ IO = region rc {
+def testBPTree07(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
@@ -100,7 +98,6 @@ def testBPTree07(): Bool \ IO = region rc {
     put!(5, 5, t);
     put!(18, 18, t);
     put!(3, 3, t);
-    println(toString(t));
     toString(t) == "[15] \n[(3, 3) (5, 5) (10, 10) (15, 15)] [(18, 18) (20, 20) (25, 25) (30, 30)] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -114,7 +111,7 @@ def testBPTree07(): Bool \ IO = region rc {
 
 
 @Test
-def testBPTree08(): Bool \ IO = region rc {
+def testBPTree08(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
@@ -124,11 +121,11 @@ def testBPTree08(): Bool \ IO = region rc {
     put!(5, 5, t);
     put!(18, 18, t);
     put!(3, 3, t);
-    println(toString(t));
+    // println(toString(t));
     put!(13, 13, t);
-    println(toString(t));
+    // println(toString(t));
     put!(19, 19, t);
-    println(toString(t));
+    // println(toString(t));
     toString(t) == "[5 15 19] \n[(3, 3) (5, 5)] [(10, 10) (13, 13) (15, 15)] [(18, 18) (19, 19)] [(20, 20) (25, 25) (30, 30)] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -143,7 +140,7 @@ def testBPTree08(): Bool \ IO = region rc {
 }
 
 @Test
-def testBPTree09(): Bool \ IO = region rc {
+def testBPTree09(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
@@ -157,7 +154,6 @@ def testBPTree09(): Bool \ IO = region rc {
     put!(19, 19, t);
     put!(28, 28, t);
     put!(40, 40, t);
-    println(toString(t));
     toString(t) == "[5 15 19 25] \n[(3, 3) (5, 5)] [(10, 10) (13, 13) (15, 15)] [(18, 18) (19, 19)] [(20, 20) (25, 25)] [(28, 28) (30, 30) (40, 40)] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -174,7 +170,7 @@ def testBPTree09(): Bool \ IO = region rc {
 }
 
 @Test
-def testBPTree10(): Bool \ IO = region rc {
+def testBPTree10(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
@@ -194,7 +190,6 @@ def testBPTree10(): Bool \ IO = region rc {
     put!(12, 12, t);
     put!(34, 34, t);
     put!(36, 36, t);
-    println(toString(t));
     toString(t) == "[15] \n[5 11] [19 25 30] \n[(3, 3) (5, 5)] [(10, 10) (11, 11)] [(12, 12) (13, 13) (15, 15)] [(16, 16) (17, 17) (18, 18) (19, 19)] [(20, 20) (25, 25)] [(28, 28) (30, 30)] [(34, 34) (36, 36) (40, 40)] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -213,12 +208,12 @@ def testBPTree10(): Bool \ IO = region rc {
 }
 
 @Test
-def testBPTree11(): Bool \ IO = region rc {
+def testBPTree11(): Bool = region rc {
     let t = empty(rc, 5);
     let keys = Vector#{95, 12, 491, 924, 950, 229, 814, 577, 710, 584, 197, 614, 103, 800, 915, 741, 399, 830, 395, 276, 292, 979, 910, 654, 471, 35, 562, 992, 758, 307, 707, 932, 207, 727, 357, 616, 458, 303, 576, 92, 680, 299, 579, 171, 199, 183, 519, 166, 777, 585};
     let kvs = Vector.map(k -> (k, k), keys);
     BPlusTree.putAll!(kvs, t);
-    println(toString(t));
+    // println(toString(t));
     Vector.map(k -> get(k, t) == Some(k), keys)
     |> Vector.foldLeft(b -> a -> b and a, true)
 }

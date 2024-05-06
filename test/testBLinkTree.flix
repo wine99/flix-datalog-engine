@@ -2,8 +2,34 @@ use Concurrent2.BLinkTree.empty
 use Concurrent2.BLinkTree.put!
 use Concurrent2.BLinkTree.putAll!
 use Concurrent2.BLinkTree.get
+use Concurrent2.BLinkTree.size
 use Concurrent2.BLinkTree.toString
 
+
+pub def putAllConcurrent(rc: Region[r1], kvs: m[(k, v)], t: Concurrent2.BLinkTree[k, v, r], threads: Int32): Unit \ { r1, IO } with Order[k], Foldable[m], ToString[k], ToString[v] =
+    foreach (_ <- Vector.range(0, threads))
+        spawn putAll!(kvs, t) @ rc
+
+pub def putAllPartition(rc: Region[r1], kvs: Vector[(k, v)], t: Concurrent2.BLinkTree[k, v, r], threads: Int32): Unit \ { r1, IO } with Order[k], ToString[k], ToString[v] =
+    let n = Vector.length(kvs);
+    let m = n / threads;
+    def loop(i, end) = {
+        if (i < end)
+            let (k, v) = Vector.get(i, kvs);
+            put!(k, v, t);
+            loop(i + 1, end)
+        else ()
+    };
+    foreach (i <- Vector.range(0, threads)) {
+        let start = i * m;
+        let end = if (i == threads - 1) n else (i + 1) * m;
+        spawn loop(start, end) @ rc
+    }
+
+pub def repeatTest(fn: Unit -> Bool \ r, n: Int32): Bool \ r =
+    Vector.range(0, n)
+    |> Vector.map(_ -> fn())
+    |> Vector.foldLeft(b -> a -> b and a, true)
 
 @Test
 def testBLTree00(): Bool = region rc {
@@ -59,14 +85,13 @@ def testBLTree04(): Bool = region rc {
 }
 
 @Test
-def testBLTree05(): Bool \ IO = region rc {
+def testBLTree05(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
     put!(30, 30, t);
     put!(25, 25, t);
     put!(15, 15, t);
-    println(toString(t));
     toString(t) == "[15 Inf] \n[(10, 10) (15, 15) 15] [(20, 20) (25, 25) (30, 30) Inf] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -96,7 +121,7 @@ def testBLTree06(): Bool = region rc {
 }
 
 @Test
-def testBLTree07(): Bool \ IO = region rc {
+def testBLTree07(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
@@ -106,7 +131,6 @@ def testBLTree07(): Bool \ IO = region rc {
     put!(5, 5, t);
     put!(18, 18, t);
     put!(3, 3, t);
-    println(toString(t));
     toString(t) == "[15 Inf] \n[(3, 3) (5, 5) (10, 10) (15, 15) 15] [(18, 18) (20, 20) (25, 25) (30, 30) Inf] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -120,7 +144,7 @@ def testBLTree07(): Bool \ IO = region rc {
 
 
 @Test
-def testBLTree08(): Bool \ IO = region rc {
+def testBLTree08(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
@@ -130,11 +154,11 @@ def testBLTree08(): Bool \ IO = region rc {
     put!(5, 5, t);
     put!(18, 18, t);
     put!(3, 3, t);
-    println(toString(t));
+    // println(toString(t));
     put!(13, 13, t);
-    println(toString(t));
+    // println(toString(t));
     put!(19, 19, t);
-    println(toString(t));
+    // println(toString(t));
     toString(t) == "[5 15 19 Inf] \n[(3, 3) (5, 5) 5] [(10, 10) (13, 13) (15, 15) 15] [(18, 18) (19, 19) 19] [(20, 20) (25, 25) (30, 30) Inf] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -149,7 +173,7 @@ def testBLTree08(): Bool \ IO = region rc {
 }
 
 @Test
-def testBLTree09(): Bool \ IO = region rc {
+def testBLTree09(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
@@ -163,7 +187,7 @@ def testBLTree09(): Bool \ IO = region rc {
     put!(19, 19, t);
     put!(28, 28, t);
     put!(40, 40, t);
-    println(toString(t));
+    // println(toString(t));
     toString(t) == "[5 15 19 25 Inf] \n[(3, 3) (5, 5) 5] [(10, 10) (13, 13) (15, 15) 15] [(18, 18) (19, 19) 19] [(20, 20) (25, 25) 25] [(28, 28) (30, 30) (40, 40) Inf] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -180,7 +204,7 @@ def testBLTree09(): Bool \ IO = region rc {
 }
 
 @Test
-def testBLTree10(): Bool \ IO = region rc {
+def testBLTree10(): Bool = region rc {
     let t = empty(rc, 5);
     put!(20, 20, t);
     put!(10, 10, t);
@@ -198,10 +222,10 @@ def testBLTree10(): Bool \ IO = region rc {
     put!(16, 16, t);
     put!(11, 11, t);
     put!(12, 12, t);
-    println(toString(t));
+    // println(toString(t));
     put!(34, 34, t);
     put!(36, 36, t);
-    println(toString(t));
+    // println(toString(t));
     toString(t) == "[15 Inf] \n[5 11 15] [19 25 30 Inf] \n[(3, 3) (5, 5) 5] [(10, 10) (11, 11) 11] [(12, 12) (13, 13) (15, 15) 15] [(16, 16) (17, 17) (18, 18) (19, 19) 19] [(20, 20) (25, 25) 25] [(28, 28) (30, 30) 30] [(34, 34) (36, 36) (40, 40) Inf] "
     and get(10, t) == Some(10)
     and get(20, t) == Some(20)
@@ -220,14 +244,15 @@ def testBLTree10(): Bool \ IO = region rc {
 }
 
 @Test
-def testBLTree11(): Bool \ IO = region rc {
+def testBLTree11(): Bool = region rc {
     let t = empty(rc, 5);
     let keys = Vector#{95, 12, 491, 924, 950, 229, 814, 577, 710, 584, 197, 614, 103, 800, 915, 741, 399, 830, 395, 276, 292, 979, 910, 654, 471, 35, 562, 992, 758, 307, 707, 932, 207, 727, 357, 616, 458, 303, 576, 92, 680, 299, 579, 171, 199, 183, 519, 166, 777, 585};
     let kvs = Vector.map(k -> (k, k), keys);
     putAll!(kvs, t);
-    println(toString(t));
+    // println(toString(t));
     Vector.map(k -> get(k, t) == Some(k), keys)
     |> Vector.foldLeft(b -> a -> b and a, true)
+    and size(t) == Vector.length(keys)
 }
 
 @Test
@@ -252,21 +277,66 @@ def testBLTree13(): Bool = region rc {
     |> Vector.foldLeft(b -> a -> b and a, true)
 }
 
-def putAllConcurrent(rc: Region[r1], kvs: m[(k, v)], t: Concurrent2.BLinkTree[k, v, r], threads: Int32): Unit \ { r1, IO } with Order[k], Foldable[m], ToString[k], ToString[v] =
-    foreach (_ <- Vector.range(0, threads))
-        spawn putAll!(kvs, t) @ rc
+@Test
+def testBLTree14(): Bool \ IO = region rc {
+    let keys = Vector.range(1, Int32.pow(2, 14));
+    def test(): Bool = {
+        let kvs = Vector.shuffle(Random.fresh(), keys) |> Vector.map(k -> (k, k));
+        let t = empty(rc, 20);
+        putAll!(kvs, t);
+        Vector.map(k -> get(k, t) == Some(k), keys)
+        |> Vector.foldLeft(b -> a -> b and a, true)
+        and size(t) == Vector.length(keys)
+    };
+    repeatTest(test, 20)
+}
 
 @Test
 def testBLTreeConcurrent01(): Bool \ IO = region rc {
-    let t = empty(rc, 5);
     let keys = Vector#{95, 12, 491, 924, 950, 229, 814, 577, 710, 584, 197, 614, 103, 800, 915, 741, 399, 830, 395, 276, 292, 979, 910, 654, 471, 35, 562, 992, 758, 307, 707, 932, 207, 727, 357, 616, 458, 303, 576, 92, 680, 299, 579, 171, 199, 183, 519, 166, 777, 585};
     let kvs = Vector.map(k -> (k, k), keys);
-    region r1 {
-        putAllConcurrent(r1, kvs, t, 10)
+    def test(): Bool = {
+        let t = empty(rc, 5);
+        region r1 {
+            putAllConcurrent(r1, kvs, t, 6)
+        };
+        // println(toString(t));
+        Vector.map(k -> get(k, t) == Some(k), keys)
+        |> Vector.foldLeft(b -> a -> b and a, true)
     };
-    println(toString(t));
-    Vector.map(k -> get(k, t) == Some(k), keys)
-    |> Vector.foldLeft(b -> a -> b and a, true)
+    repeatTest(test, 50)
+}
+
+@Test
+def testBLTreeConcurrent02(): Bool \ IO = region rc {
+    let keys = Vector.range(1, Int32.pow(2, 16));
+    def test(): Bool = {
+        let kvs = Vector.shuffle(Random.fresh(), keys) |> Vector.map(k -> (k, k));
+        let t = empty(rc, 20);
+        region r1 {
+            putAllConcurrent(r1, kvs, t, 6)
+        };
+        Vector.map(k -> get(k, t) == Some(k), keys)
+        |> Vector.foldLeft(b -> a -> b and a, true)
+        and size(t) == Vector.length(keys)
+    };
+    repeatTest(test, 50)
+}
+
+@Test
+def testBLTreeConcurrent03(): Bool \ IO = region rc {
+    let keys = Vector.range(1, Int32.pow(2, 20));
+    def test(): Bool = {
+        let kvs = Vector.shuffle(Random.fresh(), keys) |> Vector.map(k -> (k, k));
+        let t = empty(rc, 20);
+        region r1 {
+            putAllPartition(r1, kvs, t, 6)
+        };
+        Vector.map(k -> get(k, t) == Some(k), keys)
+        |> Vector.foldLeft(b -> a -> b and a, true)
+        and size(t) == Vector.length(keys)
+    };
+    repeatTest(test, 50)
 }
 
 // @Test

@@ -161,14 +161,14 @@ mod BPlusTree {
     ///
     /// That is, key collisions are resolved by taking the mapping from `t1`.
     ///
-    pub def merge!(t1: BPlusTree[k, v, r], t2: BPlusTree[k, v, r]): Unit \ r with Order[k] =
+    pub def merge!(t1: BPlusTree[k, v, r1], t2: BPlusTree[k, v, r2]): Unit \ { r1, r2 } with Order[k] =
         forEach((k1, v1) -> put!(k1, v1, t2), t1)
 
     ///
     /// Merges the B+Tree `t1` into the B+Tree `t2` in a left-biased manner,
     /// solving collisions with the function `f` applied to `v1` and `v2`.
     ///
-    pub def mergeWith!(f: (v, v) -> v \ ef, t1: BPlusTree[k, v, r], t2: BPlusTree[k, v, r]): Unit \ { ef, r } with Order[k] =
+    pub def mergeWith!(f: (v, v) -> v \ ef, t1: BPlusTree[k, v, r1], t2: BPlusTree[k, v, r2]): Unit \ { ef, r1, r2 } with Order[k] =
         forEach((k1, v1) -> putWith!(f, k1, v1, t2), t1)
 
     ///
@@ -183,11 +183,10 @@ mod BPlusTree {
     ///
     /// Returns a `m`-way B+Tree from a map.
     ///
-    pub def fromMap(rc: Region[r], m: Int32, map: Map[k, v]): BPlusTree[k, v, r] \ r with Order[k] = {
+    pub def fromMap(rc: Region[r], m: Int32, map: Map[k, v]): BPlusTree[k, v, r] \ r with Order[k] =
         let t = empty(rc, m);
         Map.forEach((k, v) -> put!(k, v, t), map);
         t
-    }
 
     ///
     /// Returns a string representation of the B+Tree.

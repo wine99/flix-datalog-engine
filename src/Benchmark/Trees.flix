@@ -1,9 +1,9 @@
 mod MyBench.Trees {
     def genFacts1(size: Int32): Vector[Int32] \ IO =
-        genFacts(size, genFact1(size), None)
-    
+        genFacts(size, genFact1(size * 10), None)
+
     def inputSizes(): Vector[Int32] =
-        Vector.range(2, 23) |> Vector.map(Int32.pow(2))
+        Vector.range(2, 21) |> Vector.map(Int32.pow(2))
 
     def bTreeNodeSizes(): Vector[Int32] =
         Vector.range(5, 7) |> Vector.map(Int32.pow(2))
@@ -109,6 +109,46 @@ mod MyBench.Trees {
                 BPlusTree.rangeQueryWith(p, _ -> v -> MutList.push!(v, result), m);
                 println("${Time.Epoch.nanoseconds() - t}")
             }
+        }
+    }
+
+    pub def testRBTRangeQuery03(): Unit \ IO = region rc {
+        println("RedBlackTree range query 3");
+        foreach(size <- inputSizes()) {
+            let input = genFacts1(size);
+            let m = MutMap.empty(rc);
+            foreach(x <- input) {
+                MutMap.put!(x, x, m)
+            };
+            let left = Vector.get(size / 10 * 5, input);
+            let right = Vector.get(size / 10 * 6, input);
+            let p = k ->
+                if (k > left) Comparison.GreaterThan
+                else if (k < right) Comparison.LessThan
+                else Comparison.EqualTo;
+            let t = unchecked_cast(Time.Epoch.nanoseconds() as Int64 \ IO);
+            unchecked_cast(MutMap.rangeQueryWith(p, _ -> _ -> (), m) as _ \ IO);
+            println("${Time.Epoch.nanoseconds() - t}")
+        }
+    }
+
+    pub def testBTreeRangeQuery03(): Unit \ IO = region rc {
+        println("32-way BPlusTree range query 3");
+        foreach(size <- inputSizes()) {
+            let input = genFacts1(size);
+            let m = BPlusTree.empty(rc, 32);
+            foreach(x <- input) {
+                BPlusTree.put!(x, x, m)
+            };
+            let left = Vector.get(size / 10 * 5, input);
+            let right = Vector.get(size / 10 * 6, input);
+            let p = k ->
+                if (k > left) Comparison.GreaterThan
+                else if (k < right) Comparison.LessThan
+                else Comparison.EqualTo;
+            let t = unchecked_cast(Time.Epoch.nanoseconds() as Int64 \ IO);
+            unchecked_cast(BPlusTree.rangeQueryWith(p, _ -> _ -> (), m) as _ \ IO);
+            println("${Time.Epoch.nanoseconds() - t}")
         }
     }
 

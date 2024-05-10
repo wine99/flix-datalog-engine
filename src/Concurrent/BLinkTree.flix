@@ -15,6 +15,8 @@ mod Concurrent2 {
     /// We do need that change of the root ref be seen by all threads immediately
     /// so that when concurrent root split happens, the call to getRootLevel will return the correct level.
 
+    /// FIXME deref right after unlock is erroneous
+
     mod BLinkTree {
 
         use Concurrent2.Node
@@ -44,6 +46,14 @@ mod Concurrent2 {
                 case _ => false
             }
 
+        pub def height(t: BLinkTree[k, v, r]): Int32 \ r =
+            let BLinkTree(_, root) = t;
+            match deref root {
+                case Node.Leaf(l, _, _, _, _, _) => l + 1
+                case Node.Inner(l, _, _, _, _, _) => l + 1
+                case _ => bug!("root should never be empty")
+            }
+
         ///
         /// Returns the number of elements in the B+Tree.
         ///
@@ -68,9 +78,9 @@ mod Concurrent2 {
             let (leaf, _) = descendToLeaf(k, deref root, Nil);
             let (node, i) = searchLeaf(k, leaf, false);
             match node {
-                case Node.Leaf(_, c, keys, values, _, lock) =>
+                case Node.Leaf(_, c, keys, vals, _, lock) =>
                     if (i < deref c and k == Array.get(i, keys)) {
-                        let ret = Some(Array.get(i, values));
+                        let ret = Some(Array.get(i, vals));
                         ReentrantReadWriteLock.unlockRead(lock);
                         ret
                     } else {
@@ -86,7 +96,8 @@ mod Concurrent2 {
         pub def put!(k: k, v: v, t: BLinkTree[k, v, r]): Unit \ r with Order[k] =
             let BLinkTree(rc, root) = t;
             let (leaf, stack) = descendToLeaf(k, deref root, Nil);
-            insertLeaf!(rc, k, v, leaf, stack, root)
+            let _ = insertLeaf!(rc, (newV, _oldV) -> newV, false, k, v, leaf, stack, root);
+            ()
 
         ///
         /// Inserts all key-value pairs in `kvs` into the B+Tree `t`, replacing existing bindings.
@@ -112,8 +123,10 @@ mod Concurrent2 {
         /// Otherwise, updates `t` with `k => v`.
         ///
         pub def putWith!(f: (v, v) -> v \ ef, k: k, v: v, t: BLinkTree[k, v, r]): Unit \ { ef, r } with Order[k] =
-            // TODO
-            unchecked_cast(??? as _ \ { ef, r })
+            let BLinkTree(rc, root) = t;
+            let (leaf, stack) = descendToLeaf(k, deref root, Nil);
+            let _ = insertLeaf!(rc, f, false, k, v, leaf, stack, root);
+            ()
 
         ///
         /// Returns `v'` if `k -> v'` is in the B+Tree `t`.
@@ -121,17 +134,24 @@ mod Concurrent2 {
         /// Otherwise updates `t` with a new mapping `k -> v` and returns `v`.
         ///
         pub def getOrElsePut!(k: k, v: v, t: BLinkTree[k, v, r]): v \ r with Order[k] =
-            // TODO
-            unchecked_cast(??? as _ \ { r })
+            let BLinkTree(rc, root) = t;
+            let (leaf, stack) = descendToLeaf(k, deref root, Nil);
+            insertLeaf!(rc, (newV, _oldV) -> newV, true, k, v, leaf, stack, root)
 
         ///
         /// Applies `f` to all key-value pairs from `t` where `p(k)` returns `Comparison.EqualTo`.
         ///
-        /// The function `f` must be impure.
+        /// `f` should not modify the B+Tree `t`, deadlock may occur.
         ///
-        pub def rangeQueryWith(p: k -> Comparison \ ef1, f: (k, v) -> Unit \ ef2, t: BLinkTree[k, v, r]): Unit \ { ef1, ef2, r } =
-            // TODO
-            unchecked_cast(??? as _ \ { ef1, ef2, r })
+        pub def rangeQueryWith(p: k -> Comparison \ ef1, f: (k, v) -> Unit \ ef2, t: BLinkTree[k, v, r]): Unit \ { ef1, ef2, r } with Order[k] =
+            let BLinkTree(_, root) = t;
+            let leaf = descendToLeafWith(p, deref root);
+            let (node, i) = searchLeafWith(p, leaf);
+            match node {
+                case Node.Leaf(_, c, keys, vals, right, lock) =>
+                    walkLeafWith(p, f, i, keys, vals, deref c, deref right, lock)
+                case _ => bug!("searchLeaf returned a non-leaf node")
+            }
 
         ///
         /// Extracts a range of key-value pairs from `t`.
@@ -148,9 +168,17 @@ mod Concurrent2 {
         ///
         /// Applies `f` to every key-value pair of `t`.
         ///
+        /// `f` should not modify the B+Tree `t`, deadlock may occur.
+        ///
         pub def forEach(f: (k, v) -> Unit \ ef, t: BLinkTree[k, v, r]): Unit \ { ef, r } =
-            // TODO
-            unchecked_cast(??? as _ \ { ef, r })
+            let BLinkTree(_, root) = t;
+            let leaf = leftmost(deref root);
+            match leaf {
+                case Node.Leaf(_, c, keys, vals, right, lock) =>
+                    ReentrantReadWriteLock.lockRead(lock);
+                    walkLeaf(f, 0, keys, vals, deref c, deref right, lock)
+                case _ => bug!("searchLeaf returned a non-leaf node")
+            }
 
         ///
         /// Merges the B+Tree `t1` into the B+Tree `t2` in a left-biased manner.
@@ -253,15 +281,24 @@ mod Concurrent2 {
             case Node.Empty => Array.empty(rc, 0)
         }
 
-        def insertLeaf!(rc: Region[r], k: k, v: v, node: Node[k, v, r], stack: List[Node[k, v, r]], root: Ref[Node[k, v, r], r]): Unit \ r with Order[k] =
+        def insertLeaf!(rc: Region[r], f: (v, v) -> v \ ef, getOrElsePut: Bool, k: k, v: v, node: Node[k, v, r], stack: List[Node[k, v, r]], root: Ref[Node[k, v, r], r]): v \ { ef, r } with Order[k] =
             let (dstNode, i) = searchLeaf(k, node, true);
             // unchecked_cast(println("dstNode: ${nodeToString(rc, dstNode)}, ${i}") as Unit \ r);
             match dstNode {
                 case Node.Leaf(level, c, keys, vals, right, lock) =>
                     let cc = deref c;
                     if (i < cc and k == Array.get(i, keys)) {
-                        Array.put(v, i, vals);
-                        ReentrantReadWriteLock.unlockWrite(lock)
+                        if (getOrElsePut) {
+                            let oldV = Array.get(i, vals);
+                            ReentrantReadWriteLock.unlockWrite(lock);
+                            oldV
+                        } else {
+                            let oldV = Array.get(i, vals);
+                            let newV = f(v, oldV);
+                            Array.put(newV, i, vals);
+                            ReentrantReadWriteLock.unlockWrite(lock);
+                            newV
+                        }
                     } else {
                         match (arrayInsert!(k, i, cc, Array.length(keys) - 1, keys), arrayInsert!(v, i, cc, Array.length(vals), vals)) {
                             case (Some(overflowedKey), Some(overflowedVal)) =>
@@ -284,14 +321,16 @@ mod Concurrent2 {
                                         }
                                     case parent :: restStack =>
                                         insertInner!(rc, upKey, upChild, parent, restStack, root)
-                                }
+                                };
+                                v
                             case (None, None) =>
                                 c := cc + 1;
                                 if (i == cc and not isNull(deref right))
                                     setHighKey!(keys, Array.get(cc, keys))
                                 else
                                     ();
-                                ReentrantReadWriteLock.unlockWrite(lock)
+                                ReentrantReadWriteLock.unlockWrite(lock);
+                                v
                             case _ => bug!("`arrayInsert` should always return either both or none")
                         }
                     }
@@ -361,6 +400,16 @@ mod Concurrent2 {
                 case _ => bug!("should never receive Node.Empty")
             }
 
+        def descendToLeafWith(p: k -> Comparison \ ef1, node: Node[k, v, r]): Node[k, v, r] \ { ef1, r } with Order[k] =
+            match node {
+                case Node.Leaf(_, _, _, _, _, _) =>
+                    node
+                case Node.Inner(_, _, _, _, _, _) =>
+                    let child = searchInnerWith(p, node);
+                    descendToLeafWith(p, child)
+                case _ => bug!("should never receive Node.Empty")
+            }
+
         def descendToLevel(k: k, toLevel: Int32, node: Node[k, v, r], stack: List[Node[k, v, r]]): (Node[k, v, r], List[Node[k, v, r]]) \ r with Order[k] =
             match node {
                 case Node.Inner(level, _, _, _, _, _) =>
@@ -381,6 +430,9 @@ mod Concurrent2 {
         def needToGoRight(k: k, keys: Array[k, r], right: Node[k, v, r]): Bool \ r with Order[k] =
             not isNull(right) and k > getHighKey(keys)
 
+        def needToGoRightWith(p: k -> Comparison \ ef, keys: Array[k, r], right: Node[k, v, r]): Bool \ { ef, r } with Order[k] =
+            not isNull(right) and p(getHighKey(keys)) == Comparison.LessThan
+
         ///
         /// Returns the child node to follow and the stack with the node from the current level pushed.
         ///
@@ -388,9 +440,10 @@ mod Concurrent2 {
             match node {
                 case Node.Inner(_, c, keys, children, right, lock) =>
                     ReentrantReadWriteLock.lockRead(lock);
-                    if (needToGoRight(k, keys, deref right)) {
+                    let rightNode = deref right;
+                    if (needToGoRight(k, keys, rightNode)) {
                         ReentrantReadWriteLock.unlockRead(lock);
-                        searchInner(k, deref right, stack)
+                        searchInner(k, rightNode, stack)
                     } else {
                         let cc = deref c - 1;
                         let i = findFirstGreaterOrEqual(k, 0, cc, keys);
@@ -412,12 +465,55 @@ mod Concurrent2 {
                     if (deref c == 0) {
                         (node, 0)
                     } else {
-                        if (needToGoRight(k, keys, deref right)) {
+                        let rightNode = deref right;
+                        if (needToGoRight(k, keys, rightNode)) {
                             if (isWriting) ReentrantReadWriteLock.unlockWrite(lock)
                             else ReentrantReadWriteLock.unlockRead(lock);
-                            searchLeaf(k, deref right, isWriting)
+                            searchLeaf(k, rightNode, isWriting)
                         } else {
                             let i = findFirstGreaterOrEqual(k, 0, deref c - 1, keys);
+                            (node, i)
+                        }
+                    }
+                case _ => bug!("searchLeaf called with a non-leaf node")
+            }
+
+        ///
+        /// Returns the child node to follow and the stack with the node from the current level pushed.
+        ///
+        def searchInnerWith(p: k -> Comparison \ ef, node: Node[k, v, r]): Node[k, v, r] \ { ef, r } with Order[k] =
+            match node {
+                case Node.Inner(_, c, keys, children, right, lock) =>
+                    ReentrantReadWriteLock.lockRead(lock);
+                    let rightNode = deref right;
+                    if (needToGoRightWith(p, keys, rightNode)) {
+                        ReentrantReadWriteLock.unlockRead(lock);
+                        searchInnerWith(p, rightNode)
+                    } else {
+                        let i = findFirstGreaterOrEqualWith(p, 0, deref c - 1, keys);
+                        let child = Array.get(i, children);
+                        ReentrantReadWriteLock.unlockRead(lock);
+                        child
+                    }
+                case _ => bug!("searchInner called with a non-inner node")
+            }
+
+        ///
+        /// Returns a locked node and the index of `k` or where `k` should be inserted.
+        ///
+        def searchLeafWith(p: k -> Comparison \ ef, node: Node[k, v, r]): (Node[k, v, r], Int32) \ { ef, r } with Order[k] =
+            match node {
+                case Node.Leaf(_, c, keys, _, right, lock) =>
+                    ReentrantReadWriteLock.lockRead(lock);
+                    if (deref c == 0) {
+                        (node, 0)
+                    } else {
+                        let rightNode = deref right;
+                        if (needToGoRightWith(p, keys, rightNode)) {
+                            ReentrantReadWriteLock.unlockRead(lock);
+                            searchLeafWith(p, rightNode)
+                        } else {
+                            let i = findFirstGreaterOrEqualWith(p, 0, deref c - 1, keys);
                             (node, i)
                         }
                     }
@@ -442,15 +538,24 @@ mod Concurrent2 {
             }
 
         def findFirstGreaterOrEqual(k: k, i: Int32, j: Int32, keys: Array[k, r]): Int32 \ r with Order[k] =
-            if (i > j) {
+            if (i > j)
                 i
-            } else {
-                let m = (i + j) / 2;
-                if (k <= Array.get(m, keys))
-                    findFirstGreaterOrEqual(k, i, m - 1, keys)
-                else
-                    findFirstGreaterOrEqual(k, m + 1, j, keys)
-            }
+            else
+                let mid = (i + j) / 2;
+                let midKey = Array.get(mid, keys);
+                if (midKey < k) findFirstGreaterOrEqual(k, mid + 1, j, keys)
+                else findFirstGreaterOrEqual(k, i, mid - 1, keys)
+
+        def findFirstGreaterOrEqualWith(p: k -> Comparison \ ef, i: Int32, j: Int32, keys: Array[k, r]): Int32 \ { ef, r } with Order[k] =
+            if (i > j)
+                i
+            else
+                let mid = (i + j) / 2;
+                let midKey = Array.get(mid, keys);
+                match p(midKey) {
+                    case Comparison.LessThan => findFirstGreaterOrEqualWith(p, mid + 1, j, keys)
+                    case _                   => findFirstGreaterOrEqualWith(p, i, mid - 1, keys)
+                }
 
         ///
         /// Insert `v` at index `i` in an array `arr` with capacity `cap`
@@ -539,6 +644,50 @@ mod Concurrent2 {
                 let v = Array.get(start, src);
                 Array.put(v, destStart, dest);
                 copyOfRange!(src, start + 1, end, dest, destStart + 1)
-        }
 
+        ///
+        /// Walks through the leaf level, starting from the index `start` of the leaf node `node`,
+        /// applying `f` to each key-value pair, stops when `p(k)` does not return `Comparison.EqualTo`.
+        ///
+        def walkLeafWith(p: k -> Comparison \ ef1, f: (k, v) -> Unit \ ef2, start: Int32, keys: Array[k, r], vals: Array[v, r], c: Int32, right: Node[k, v, r], lock: ReentrantReadWriteLock[r]): Unit \ { ef1, ef2, r } =
+            if (start < c) {
+                let k = Array.get(start, keys);
+                match p(k) {
+                    case Comparison.EqualTo =>
+                        f(k, Array.get(start, vals));
+                        walkLeafWith(p, f, start + 1, keys, vals, c, right, lock)
+                    case _ =>
+                        ReentrantReadWriteLock.unlockRead(lock)
+                }
+            } else {
+                match right {
+                    case Node.Empty => ReentrantReadWriteLock.unlockRead(lock)
+                    case Node.Leaf(_, c_, keys_, vals_, right_, lock_) =>
+                        ReentrantReadWriteLock.unlockRead(lock);
+                        ReentrantReadWriteLock.lockRead(lock_);
+                        walkLeafWith(p, f, 0, keys_, vals_, deref c_, deref right_, lock_)
+                    case Node.Inner(_, _, _, _, _, _) => bug!("A leaf node should always have a leaf node as its right sibling")
+                }
+            }
+
+        ///
+        /// Walks through the leaf level, starting from the index `start` of the leaf node `node`,
+        /// applying `f` to each key-value pair, stops when `p(k)` does not return `Comparison.EqualTo`.
+        ///
+        def walkLeaf(f: (k, v) -> Unit \ ef2, start: Int32, keys: Array[k, r], vals: Array[v, r], c: Int32, right: Node[k, v, r], lock: ReentrantReadWriteLock[r]): Unit \ { ef1, ef2, r } =
+            if (start < c) {
+                f(Array.get(start, keys), Array.get(start, vals));
+                walkLeaf(f, start + 1, keys, vals, c, right, lock)
+            } else {
+                match right {
+                    case Node.Empty => ReentrantReadWriteLock.unlockRead(lock)
+                    case Node.Leaf(_, c_, keys_, vals_, right_, lock_) =>
+                        ReentrantReadWriteLock.unlockRead(lock);
+                        ReentrantReadWriteLock.lockRead(lock_);
+                        walkLeaf(f, 0, keys_, vals_, deref c_, deref right_, lock_)
+                    case Node.Inner(_, _, _, _, _, _) => bug!("A leaf node should always have a leaf node as its right sibling")
+                }
+            }
+
+    }
 }

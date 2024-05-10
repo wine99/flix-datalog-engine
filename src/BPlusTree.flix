@@ -71,7 +71,7 @@ mod BPlusTree {
             let BPlusTree(_, root) = t;
             let leaf = descendToLeafWith(p, deref root);
             let index = searchNodeWith(p, leaf);
-            walkLeaf(p, leaf, index, f)
+            walkLeafWith(p, leaf, index, f)
 
     ///
     /// Extracts a range of key-value pairs from `t`.
@@ -154,7 +154,7 @@ mod BPlusTree {
     pub def forEach(f: (k, v) -> Unit \ ef, t: BPlusTree[k, v, r]): Unit \ { ef, r } =
         let BPlusTree(_, root) = t;
         let leaf = leftmost(deref root);
-        walkLeaf(_ -> Comparison.EqualTo, leaf, 0, f)
+        walkLeaf(leaf, 0, f)
 
     ///
     /// Merges the B+Tree `t1` into the B+Tree `t2` in a left-biased manner.
@@ -312,26 +312,49 @@ mod BPlusTree {
     /// Walks through the leaf level, starting from the index `start` of the leaf node `node`,
     /// applying `f` to each key-value pair, stops when `p(k)` does not return `Comparison.EqualTo`.
     ///
-    def walkLeaf(p: k -> Comparison \ ef1, node: Node[k, v, r], start: Int32, f: (k, v) -> Unit \ ef2): Unit \ { ef1, ef2, r } = match node {
+    def walkLeafWith(p: k -> Comparison \ ef1, node: Node[k, v, r], start: Int32, f: (k, v) -> Unit \ ef2): Unit \ { ef1, ef2, r } = match node {
         case Node.Leaf(c, keys, vals, right) =>
-            walkLeafHelper(p, f, start, keys, vals, deref c, deref right)
+            walkLeafWithHelper(p, f, start, keys, vals, deref c, deref right)
         case Node.Inner(_, _, _) => bug!("`walkLeaf` should always receive a leaf node")
         case Node.Empty => bug!("Should not reach Node.Empty")
     }
 
-    def walkLeafHelper(p: k -> Comparison \ ef1, f: (k, v) -> Unit \ ef2, start: Int32, keys: Array[k, r], vals: Array[v, r], c: Int32, right: Node[k, v, r]): Unit \ { ef1, ef2, r } =
+    def walkLeafWithHelper(p: k -> Comparison \ ef1, f: (k, v) -> Unit \ ef2, start: Int32, keys: Array[k, r], vals: Array[v, r], c: Int32, right: Node[k, v, r]): Unit \ { ef1, ef2, r } =
         if (start < c) {
             let k = Array.get(start, keys);
             match p(k) {
                 case Comparison.EqualTo =>
                     f(k, Array.get(start, vals));
-                    walkLeafHelper(p, f, start + 1, keys, vals, c, right)
+                    walkLeafWithHelper(p, f, start + 1, keys, vals, c, right)
                 case _ => ()
             }
         } else {
             match right {
                 case Node.Empty => ()
-                case Node.Leaf(c_, keys_, vals_, right_) => walkLeafHelper(p, f, 0, keys_, vals_, deref c_, deref right_)
+                case Node.Leaf(c_, keys_, vals_, right_) => walkLeafWithHelper(p, f, 0, keys_, vals_, deref c_, deref right_)
+                case Node.Inner(_, _, _) => bug!("A leaf node should always have a leaf node as its right sibling")
+            }
+        }
+
+    ///
+    /// Walks through the leaf level, starting from the index `start` of the leaf node `node`,
+    /// applying `f` to each key-value pair, stops when `p(k)` does not return `Comparison.EqualTo`.
+    ///
+    def walkLeaf(node: Node[k, v, r], start: Int32, f: (k, v) -> Unit \ ef2): Unit \ { ef1, ef2, r } = match node {
+        case Node.Leaf(c, keys, vals, right) =>
+            walkLeafHelper(f, start, keys, vals, deref c, deref right)
+        case Node.Inner(_, _, _) => bug!("`walkLeaf` should always receive a leaf node")
+        case Node.Empty => bug!("Should not reach Node.Empty")
+    }
+
+    def walkLeafHelper(f: (k, v) -> Unit \ ef2, start: Int32, keys: Array[k, r], vals: Array[v, r], c: Int32, right: Node[k, v, r]): Unit \ { ef1, ef2, r } =
+        if (start < c) {
+            f(Array.get(start, keys), Array.get(start, vals));
+            walkLeafHelper(f, start + 1, keys, vals, c, right)
+        } else {
+            match right {
+                case Node.Empty => ()
+                case Node.Leaf(c_, keys_, vals_, right_) => walkLeafHelper(f, 0, keys_, vals_, deref c_, deref right_)
                 case Node.Inner(_, _, _) => bug!("A leaf node should always have a leaf node as its right sibling")
             }
         }

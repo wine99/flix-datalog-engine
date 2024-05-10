@@ -40,7 +40,7 @@ mod Fixpoint.Phase.Compiler {
     @Internal
     pub def compile(d: Datalog[v], strat: Map[PredSym, Int32]): RamStmt[v] = match d {
         case Datalog(facts, rules) =>
-            let stmtsFacts = facts |> Vector.toList |> List.flatMap(compileRule) |> List.toVector;
+            let stmtsFacts = facts |> Vector.toList |> List.flatMap(compileRule(false)) |> List.toVector;
             let stmtsRules = Vector.foldRight(rule -> match rule {
                 case Constraint(HeadAtom(p, _, _), _) =>
                     let ruleStratum = Map.getWithDefault(p, 0, strat);
@@ -86,15 +86,15 @@ mod Fixpoint.Phase.Compiler {
             MutList.push!(RamStmt.Prepare(delta), stmts)
         }, idb);
 
-        let evalRules = stratum |> List.flatMap(compileRule) |> List.toVector |> RamStmt.Seq;
+        let evalRules = stratum |> List.flatMap(compileRule(true)) |> List.toVector |> RamStmt.Par;
         MutList.push!(evalRules, stmts);
 
-        let mergeFullToDelta = Map.mapWithKey(predSym -> match (arity, den) -> {
+        let mergeDeltaToFull = Map.mapWithKey(predSym -> match (arity, den) -> {
             let full = RamSym.Full(predSym, arity, den);
             let delta = RamSym.Delta(predSym, arity, den);
-            RamStmt.Merge(full, delta)
+            RamStmt.Merge(delta, full)
         }, idb) |> Map.valuesOf |> List.toVector |> RamStmt.Par;
-        MutList.push!(mergeFullToDelta, stmts);
+        MutList.push!(mergeDeltaToFull, stmts);
 
         let loopBody = MutList.empty(rc);
 
@@ -143,14 +143,18 @@ mod Fixpoint.Phase.Compiler {
     ///         end
     ///     end
     ///
-    def compileRule(rule: Constraint[v]): List[RamStmt[v]] = match rule {
+    def compileRule(intoDelta: Bool, rule: Constraint[v]): List[RamStmt[v]] = match rule {
         case Constraint(HeadAtom(headSym, headDen, headTerms), body) => region rc {
             let stmts = MutList.empty(rc);
             let augBody = augmentBody(body);
             let env = unifyVars(augBody);
             let ramTerms = Vector.map(compileHeadTerm(env), headTerms);
             let arity = Vector.length(ramTerms);
-            let projection = RelOp.Project(ramTerms, RamSym.Full(headSym, arity, headDen));
+            let projection =
+                if (intoDelta)
+                    RelOp.Project(ramTerms, RamSym.Delta(headSym, arity, headDen))
+                else
+                    RelOp.Project(ramTerms, RamSym.Full(headSym, arity, headDen));
             let join = compileBody(env, augBody);
             let loopBody = RelOp.If(join, projection);
             let insert =

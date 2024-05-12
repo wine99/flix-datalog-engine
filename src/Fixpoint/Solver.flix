@@ -59,7 +59,7 @@ mod Fixpoint.Solver {
             case Join(Model(m), cs) => region rc {
                 let db = m
                     |> Map.map(Concurrent2.BLinkTree.fromMap(rc, Fixpoint.Interpreter.treeNodeSize()))
-                    |> BPlusTree.fromMap(rc, Fixpoint.Interpreter.treeNodeSize());
+                    |> Map.toMutMap(rc);
                 compiler(cs) |> Fixpoint.Interpreter.interpretWithDatabase(rc, db) |> toModel
             }
             case _ => bug!("Datalog normalization bug")
@@ -496,12 +496,12 @@ mod Fixpoint.Solver {
 
     def injectIntoX[f: Type -> Type, t: Type, ef: Eff](f: t -> List[Boxed] \ ef, p: PredSym, ts: f[t]): Datalog[Boxed] \ ef with Foldable[f] =
         region rc {
-            let db = Fixpoint.Interpreter.newEmptyBPTree(rc);
+            let db = Fixpoint.Interpreter.newEmptyMap(rc);
             Foldable.foldLeft(() -> t -> {
                 let vs = f(t);
                 let arity = List.length(vs);
                 let ramSym = RamSym.Full(p, arity, Denotation.Relational);
-                let rel = BPlusTree.getOrElsePut!(ramSym, Fixpoint.Interpreter.newEmptyTree(rc), db);
+                let rel = MutMap.getOrElsePut!(ramSym, Fixpoint.Interpreter.newEmptyTree(rc), db);
                 Concurrent2.BLinkTree.put!(List.toVector(vs), Reflect.default(), rel)
             }, (), ts);
             toModel(db)
@@ -755,7 +755,7 @@ mod Fixpoint.Solver {
     /// Returns the given database `db` as a Datalog value.
     ///
     def toModel(db: Database[v, r]): Datalog[v] \ r with Order[v] =
-        BPlusTree.toMap(db) |>
+        MutMap.toMap(db) |>
         Map.map(Concurrent2.BLinkTree.toMap) |>
         Model
 }

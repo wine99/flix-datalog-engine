@@ -25,7 +25,7 @@ mod Fixpoint.Interpreter {
     pub type alias SearchEnv[v: Type, r: Region] = (Array[Vector[v], r], Array[v, r])
 
     @Internal
-    pub def treeNodeSize(): Int32 = 58
+    pub def treeNodeSize(): Int32 = 60
 
     @Internal
     pub def newEmptyTree(rc: Region[r]): BLinkTree[k, v, r] \ r = BLinkTree.empty(rc, treeNodeSize())

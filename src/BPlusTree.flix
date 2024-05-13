@@ -338,7 +338,7 @@ mod BPlusTree {
 
     ///
     /// Walks through the leaf level, starting from the index `start` of the leaf node `node`,
-    /// applying `f` to each key-value pair, stops when `p(k)` does not return `Comparison.EqualTo`.
+    /// applying `f` to each key-value pair.
     ///
     def walkLeaf(node: Node[k, v, r], start: Int32, f: (k, v) -> Unit \ ef2): Unit \ { ef1, ef2, r } = match node {
         case Node.Leaf(c, keys, vals, right) =>

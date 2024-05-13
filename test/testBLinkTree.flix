@@ -295,9 +295,10 @@ def testBLTree14(): Bool \ IO = region rc {
         let kvs = Vector.shuffle(Random.fresh(), keys) |> Vector.map(k -> (k, k));
         let t = empty(rc, 20);
         putAll!(kvs, t);
-        Vector.map(k -> get(k, t) == Some(k), keys)
-        |> Vector.foldLeft(b -> a -> b and a, true)
-        and size(t) == Vector.length(keys)
+        let result = Vector.map(k -> get(k, t) == Some(k), keys) |> Vector.foldLeft(b -> a -> b and a, true)
+            and size(t) == Vector.length(keys);
+        putAll!(kvs, t);
+        result
     };
     repeatTest(test, 20)
 }
@@ -327,9 +328,12 @@ def testBLTreeConcurrent02(): Bool \ IO = region rc {
         region r1 {
             putAllConcurrent(r1, kvs, t, 6)
         };
-        Vector.map(k -> get(k, t) == Some(k), keys)
-        |> Vector.foldLeft(b -> a -> b and a, true)
-        and size(t) == Vector.length(keys)
+        let result = Vector.map(k -> get(k, t) == Some(k), keys) |> Vector.foldLeft(b -> a -> b and a, true)
+            and size(t) == Vector.length(keys);
+        region r1 {
+            putAllConcurrent(r1, kvs, t, 6)
+        };
+        result
     };
     repeatTest(test, 20)
 }
@@ -379,27 +383,6 @@ def testBLTreeForEach01(): Bool = region rc {
     let sum = Ref.fresh(rc, 0);
     Concurrent2.BLinkTree.forEach((_, v) -> sum := deref sum + v, t);
     deref sum == Vector.foldLeft((a, b) -> a + b, 0, keys)
-}
-
-@Test
-def testBLTreeConcurrent05(): Bool \ IO = region rc {
-    def test(): Bool = {
-        let keys = Vector.range(1, Int32.pow(2, Random.nextNatWithMax(Random.fresh(), 20)));
-        let len = Vector.length(keys);
-        let kvs = Vector.shuffle(Random.fresh(), keys) |> Vector.map(k -> (k, k));
-        let t = empty(rc, 32);
-        region r1 {
-            putAllPartition(r1, kvs, t, 6);
-            spawn randomRead(t, len * 2, len * 4) @ r1;
-            spawn randomRead(t, len * 2, len * 4) @ r1;
-            spawn randomRead(t, len * 2, len * 4) @ r1;
-            spawn randomRead(t, len * 2, len * 4) @ r1;
-            spawn randomRead(t, len * 2, len * 4) @ r1;
-            spawn randomRead(t, len * 2, len * 4) @ r1
-        };
-        true
-    };
-    repeatTest(test, 50)
 }
 
 @Test

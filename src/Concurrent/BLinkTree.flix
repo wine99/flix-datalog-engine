@@ -321,7 +321,6 @@ mod Concurrent2 {
                                             Array.put(upKey, 0, newKeys);
                                             Array.put(node, 0, newChildren);
                                             Array.put(upChild, 1, newChildren);
-                                            setHighKey!(newKeys, overflowedKey);
                                             let newRoot = Node.Inner(level + 1, Ref.fresh(rc, 1), newKeys, newChildren, Ref.fresh(rc, Node.Empty), ReentrantReadWriteLock.newLock(rc, false));
                                             root := newRoot
                                         } else {
@@ -333,10 +332,6 @@ mod Concurrent2 {
                                 v
                             case (None, None) =>
                                 c := cc + 1;
-                                if (i == cc and not isNull(deref right))
-                                    setHighKey!(keys, Array.get(cc, keys))
-                                else
-                                    ();
                                 ReentrantReadWriteLock.unlockWrite(lock);
                                 v
                             case _ => bug!("`arrayInsert` should always return either both or none")
@@ -363,7 +358,6 @@ mod Concurrent2 {
                                         Array.put(upKey, 0, newKeys);
                                         Array.put(node, 0, newChildren);
                                         Array.put(upChild, 1, newChildren);
-                                        setHighKey!(newKeys, overflowedKey);
                                         let newRoot = Node.Inner(level + 1, Ref.fresh(rc, 1), newKeys, newChildren, Ref.fresh(rc, Node.Empty), ReentrantReadWriteLock.newLock(rc, false));
                                         root := newRoot
                                     } else {

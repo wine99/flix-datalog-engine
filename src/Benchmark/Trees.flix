@@ -6,17 +6,24 @@ mod MyBench.Trees {
         Vector.range(2, 21) |> Vector.map(Int32.pow(2))
 
     def bTreeNodeSizes(): Vector[Int32] =
-        Vector.range(5, 7) |> Vector.map(Int32.pow(2))
+        Vector.range(4, 8) |> Vector.map(Int32.pow(2))
 
     pub def testRBTInsert(): Unit \ IO = region rc {
         println("RedBlackTree insertion");
-        foreach(size <- inputSizes()) {
-            let input = genFacts1(size);
-            let t = Time.Epoch.nanoseconds();
+        let inputSizes = Vector.range(15, 22) |> Vector.map(Int32.pow(2));
+        let testSize = 100;
+        foreach (size <- inputSizes) {
+            let r = Random.fresh();
+            let input = Vector.repeat(size, 0) |> Vector.map(_ -> Random.nextInt32(r));
             let m = MutMap.empty(rc);
-            foreach(x <- input) {
+            foreach (x <- input) {
                 MutMap.put!(x, x, m)
             };
+            let t = Time.Epoch.nanoseconds();
+            Vector.repeat(testSize, 0) |> Vector.forEach(_ -> {
+                let k = Random.nextInt32(r);
+                MutMap.put!(k, k, m)
+            });
             println("${Time.Epoch.nanoseconds() - t}")
         }
     }
@@ -24,131 +31,70 @@ mod MyBench.Trees {
     pub def testBTreeInsert(): Unit \ IO = region rc {
         foreach(nodeSize <- bTreeNodeSizes()) {
             println("${nodeSize}-way BPlusTree insertion");
-            foreach(size <- inputSizes()) {
-                let input = genFacts1(size);
-                let t = Time.Epoch.nanoseconds();
+            let inputSizes = Vector.range(15, 22) |> Vector.map(Int32.pow(2));
+            let testSize = 100;
+            foreach (size <- inputSizes) {
+                let r = Random.fresh();
+                let input = Vector.repeat(size, 0) |> Vector.map(_ -> Random.nextInt32(r));
                 let m = BPlusTree.empty(rc, nodeSize);
-                foreach(x <- input) {
+                foreach (x <- input) {
                     BPlusTree.put!(x, x, m)
                 };
+                let t = Time.Epoch.nanoseconds();
+                Vector.repeat(testSize, 0) |> Vector.forEach(_ -> {
+                    let k = Random.nextInt32(r);
+                    BPlusTree.put!(k, k, m)
+                });
                 println("${Time.Epoch.nanoseconds() - t}")
             }
         }
     }
 
     pub def testRBTRangeQuery(): Unit \ IO = region rc {
-        foreach(size <- inputSizes()) {
-            let input = genFacts1(size);
-            let m = MutMap.empty(rc);
-            foreach(x <- input) {
-                MutMap.put!(x, x, m)
-            };
+        println("RedBlackTree range query");
+        let input = Vector.range(1, Int32.pow(2, 20)) |> Vector.shuffle(Random.fresh());
+        let m = MutMap.empty(rc);
+        foreach(x <- input) {
+            MutMap.put!(x, x, m)
+        };
+
+        let rangeSize = Vector#{Int32.pow(2, 6), Int32.pow(2, 10), Int32.pow(2, 14), Int32.pow(2, 18)};
+        foreach(size <- rangeSize) {
+            let left = Int32.pow(2, 19);
+            let right = left + size;
             let p = k ->
-                if (k > size / 4) Comparison.GreaterThan
-                else if (k < size / 4 * 3) Comparison.LessThan
+                if (k < left) Comparison.LessThan
+                else if (k > right) Comparison.GreaterThan
                 else Comparison.EqualTo;
+            let result = Ref.fresh(rc, 0);
             let t = Time.Epoch.nanoseconds();
-            MutMap.rangeQueryWith(p, _ -> _ -> (), m);
-            println("RedBlackTree range query, ${size}, ${Time.Epoch.nanoseconds() - t}")
+            MutMap.rangeQueryWith(p, _ -> _ -> result := deref result + 1, m);
+            println("${Time.Epoch.nanoseconds() - t}")
         }
     }
 
     pub def testBTreeRangeQuery(): Unit \ IO = region rc {
         foreach(nodeSize <- bTreeNodeSizes()) {
-            println("${nodeSize}-way BPlusTree range query}");
-            foreach(size <- inputSizes()) {
-                let input = genFacts1(size);
-                let m = BPlusTree.empty(rc, nodeSize);
-                foreach(x <- input) {
-                    BPlusTree.put!(x, x, m)
-                };
-                let p = k ->
-                    if (k > size / 4) Comparison.GreaterThan
-                    else if (k < size / 4 * 3) Comparison.LessThan
-                    else Comparison.EqualTo;
-                let t = Time.Epoch.nanoseconds();
-                BPlusTree.rangeQueryWith(p, _ -> _ -> (), m);
-                println("${Time.Epoch.nanoseconds() - t}")
-            }
-        }
-    }
-
-    pub def testRBTRangeQuery2(): Unit \ IO = region rc {
-        foreach(size <- inputSizes()) {
-            let input = genFacts1(size);
-            let m = MutMap.empty(rc);
-            foreach(x <- input) {
-                MutMap.put!(x, x, m)
-            };
-            let p = k ->
-                if (k > size / 4) Comparison.GreaterThan
-                else if (k < size / 4 * 3) Comparison.LessThan
-                else Comparison.EqualTo;
-            let result = MutList.empty(rc);
-            let t = Time.Epoch.nanoseconds();
-            MutMap.rangeQueryWith(p, _ -> v -> MutList.push!(v, result), m);
-            println("RedBlackTree range query 2, ${size}, ${Time.Epoch.nanoseconds() - t}")
-        }
-    }
-
-    pub def testBTreeRangeQuery2(): Unit \ IO = region rc {
-        foreach(nodeSize <- bTreeNodeSizes()) {
-            println("${nodeSize}-way BPlusTree range query 2");
-            foreach(size <- inputSizes()) {
-                let input = genFacts1(size);
-                let m = BPlusTree.empty(rc, nodeSize);
-                foreach(x <- input) {
-                    BPlusTree.put!(x, x, m)
-                };
-                let p = k ->
-                    if (k > size / 4) Comparison.GreaterThan
-                    else if (k < size / 4 * 3) Comparison.LessThan
-                    else Comparison.EqualTo;
-                let result = MutList.empty(rc);
-                let t = Time.Epoch.nanoseconds();
-                BPlusTree.rangeQueryWith(p, _ -> v -> MutList.push!(v, result), m);
-                println("${Time.Epoch.nanoseconds() - t}")
-            }
-        }
-    }
-
-    pub def testRBTRangeQuery03(): Unit \ IO = region rc {
-        println("RedBlackTree range query 3");
-        foreach(size <- inputSizes()) {
-            let input = genFacts1(size);
-            let m = MutMap.empty(rc);
-            foreach(x <- input) {
-                MutMap.put!(x, x, m)
-            };
-            let left = Vector.get(size / 10 * 5, input);
-            let right = Vector.get(size / 10 * 6, input);
-            let p = k ->
-                if (k > left) Comparison.GreaterThan
-                else if (k < right) Comparison.LessThan
-                else Comparison.EqualTo;
-            let t = unchecked_cast(Time.Epoch.nanoseconds() as Int64 \ IO);
-            unchecked_cast(MutMap.rangeQueryWith(p, _ -> _ -> (), m) as _ \ IO);
-            println("${Time.Epoch.nanoseconds() - t}")
-        }
-    }
-
-    pub def testBTreeRangeQuery03(): Unit \ IO = region rc {
-        println("32-way BPlusTree range query 3");
-        foreach(size <- inputSizes()) {
-            let input = genFacts1(size);
-            let m = BPlusTree.empty(rc, 32);
+            println("${nodeSize}-way BPlusTree range query");
+            let input = Vector.range(1, Int32.pow(2, 20)) |> Vector.shuffle(Random.fresh());
+            let m = BPlusTree.empty(rc, nodeSize);
             foreach(x <- input) {
                 BPlusTree.put!(x, x, m)
             };
-            let left = Vector.get(size / 10 * 5, input);
-            let right = Vector.get(size / 10 * 6, input);
-            let p = k ->
-                if (k > left) Comparison.GreaterThan
-                else if (k < right) Comparison.LessThan
-                else Comparison.EqualTo;
-            let t = unchecked_cast(Time.Epoch.nanoseconds() as Int64 \ IO);
-            unchecked_cast(BPlusTree.rangeQueryWith(p, _ -> _ -> (), m) as _ \ IO);
-            println("${Time.Epoch.nanoseconds() - t}")
+
+            let rangeSize = Vector#{Int32.pow(2, 6), Int32.pow(2, 10), Int32.pow(2, 14), Int32.pow(2, 18)};
+            foreach(size <- rangeSize) {
+                let left = Int32.pow(2, 19);
+                let right = left + size;
+                let p = k ->
+                    if (k < left) Comparison.LessThan
+                    else if (k > right) Comparison.GreaterThan
+                    else Comparison.EqualTo;
+                let result = Ref.fresh(rc, 0);
+                let t = Time.Epoch.nanoseconds();
+                BPlusTree.rangeQueryWith(p, _ -> _ -> result := deref result + 1, m);
+                println("${Time.Epoch.nanoseconds() - t}")
+            }
         }
     }
 
